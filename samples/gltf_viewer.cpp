@@ -893,6 +893,8 @@ int main(int argc, char** argv) {
 
     auto cleanup = [&app](Engine* engine, View*, Scene*) {
         app.automationEngine->terminate();
+        app.resourceLoader->asyncCancelLoad();
+        engine->flushAndWait();
         app.assetLoader->destroyAsset(app.asset);
         app.materials->destroyMaterials();
 
