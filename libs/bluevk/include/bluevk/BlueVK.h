@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 The Android Open Source Project
+ * Copyright (C) 2022 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,8 @@
 #ifndef TNT_FILAMENT_BLUEVK_H
 #define TNT_FILAMENT_BLUEVK_H
 
+#define VK_ENABLE_BETA_EXTENSIONS
+
 // BlueVK dynamically loads all function pointers, so it cannot allow function prototypes, which
 // would assume static linking for Vulkan entry points.
 #if defined(VULKAN_H_) && !defined(VK_NO_PROTOTYPES)
@@ -35,8 +37,31 @@
     #ifndef VK_NO_PROTOTYPES
     #define VK_NO_PROTOTYPES
     #endif
+
+    #if defined(__ANDROID__)
+    #define VK_USE_PLATFORM_ANDROID_KHR 1
+    #elif defined(IOS)
+    #define VK_USE_PLATFORM_IOS_MVK 1
+    #elif defined(__linux__)
+    #if defined(FILAMENT_SUPPORTS_XCB)
+    #define VK_USE_PLATFORM_XCB_KHR 1
+    #endif
+    #if defined(FILAMENT_SUPPORTS_XLIB)
+    #define VK_USE_PLATFORM_XLIB_KHR 1
+    #endif
+    #if defined(FILAMENT_SUPPORTS_WAYLAND)
+    #define VK_USE_PLATFORM_WAYLAND_KHR 1
+    #endif
+    #elif defined(__APPLE__)
+    #define VK_USE_PLATFORM_MACOS_MVK 1
+    #elif defined(WIN32)
+    #define VK_USE_PLATFORM_WIN32_KHR 1
+    #endif
+
     #include <vulkan/vulkan.h>
 #endif
+
+#include <utils/unwindows.h>
 
 namespace bluevk {
 
@@ -44,8 +69,6 @@ namespace bluevk {
     bool initialize();
 
     void bindInstance(VkInstance instance);
-
-} // namespace bluevk
 
 #if defined(VK_VERSION_1_0)
 extern PFN_vkAllocateCommandBuffers vkAllocateCommandBuffers;
@@ -231,6 +254,45 @@ extern PFN_vkResetQueryPool vkResetQueryPool;
 extern PFN_vkSignalSemaphore vkSignalSemaphore;
 extern PFN_vkWaitSemaphores vkWaitSemaphores;
 #endif // defined(VK_VERSION_1_2)
+#if defined(VK_VERSION_1_3)
+extern PFN_vkCmdBeginRendering vkCmdBeginRendering;
+extern PFN_vkCmdBindVertexBuffers2 vkCmdBindVertexBuffers2;
+extern PFN_vkCmdBlitImage2 vkCmdBlitImage2;
+extern PFN_vkCmdCopyBuffer2 vkCmdCopyBuffer2;
+extern PFN_vkCmdCopyBufferToImage2 vkCmdCopyBufferToImage2;
+extern PFN_vkCmdCopyImage2 vkCmdCopyImage2;
+extern PFN_vkCmdCopyImageToBuffer2 vkCmdCopyImageToBuffer2;
+extern PFN_vkCmdEndRendering vkCmdEndRendering;
+extern PFN_vkCmdPipelineBarrier2 vkCmdPipelineBarrier2;
+extern PFN_vkCmdResetEvent2 vkCmdResetEvent2;
+extern PFN_vkCmdResolveImage2 vkCmdResolveImage2;
+extern PFN_vkCmdSetCullMode vkCmdSetCullMode;
+extern PFN_vkCmdSetDepthBiasEnable vkCmdSetDepthBiasEnable;
+extern PFN_vkCmdSetDepthBoundsTestEnable vkCmdSetDepthBoundsTestEnable;
+extern PFN_vkCmdSetDepthCompareOp vkCmdSetDepthCompareOp;
+extern PFN_vkCmdSetDepthTestEnable vkCmdSetDepthTestEnable;
+extern PFN_vkCmdSetDepthWriteEnable vkCmdSetDepthWriteEnable;
+extern PFN_vkCmdSetEvent2 vkCmdSetEvent2;
+extern PFN_vkCmdSetFrontFace vkCmdSetFrontFace;
+extern PFN_vkCmdSetPrimitiveRestartEnable vkCmdSetPrimitiveRestartEnable;
+extern PFN_vkCmdSetPrimitiveTopology vkCmdSetPrimitiveTopology;
+extern PFN_vkCmdSetRasterizerDiscardEnable vkCmdSetRasterizerDiscardEnable;
+extern PFN_vkCmdSetScissorWithCount vkCmdSetScissorWithCount;
+extern PFN_vkCmdSetStencilOp vkCmdSetStencilOp;
+extern PFN_vkCmdSetStencilTestEnable vkCmdSetStencilTestEnable;
+extern PFN_vkCmdSetViewportWithCount vkCmdSetViewportWithCount;
+extern PFN_vkCmdWaitEvents2 vkCmdWaitEvents2;
+extern PFN_vkCmdWriteTimestamp2 vkCmdWriteTimestamp2;
+extern PFN_vkCreatePrivateDataSlot vkCreatePrivateDataSlot;
+extern PFN_vkDestroyPrivateDataSlot vkDestroyPrivateDataSlot;
+extern PFN_vkGetDeviceBufferMemoryRequirements vkGetDeviceBufferMemoryRequirements;
+extern PFN_vkGetDeviceImageMemoryRequirements vkGetDeviceImageMemoryRequirements;
+extern PFN_vkGetDeviceImageSparseMemoryRequirements vkGetDeviceImageSparseMemoryRequirements;
+extern PFN_vkGetPhysicalDeviceToolProperties vkGetPhysicalDeviceToolProperties;
+extern PFN_vkGetPrivateData vkGetPrivateData;
+extern PFN_vkQueueSubmit2 vkQueueSubmit2;
+extern PFN_vkSetPrivateData vkSetPrivateData;
+#endif // defined(VK_VERSION_1_3)
 #if defined(VK_AMD_buffer_marker)
 extern PFN_vkCmdWriteBufferMarkerAMD vkCmdWriteBufferMarkerAMD;
 #endif // defined(VK_AMD_buffer_marker)
@@ -254,6 +316,10 @@ extern PFN_vkGetSwapchainGrallocUsage2ANDROID vkGetSwapchainGrallocUsage2ANDROID
 extern PFN_vkGetSwapchainGrallocUsageANDROID vkGetSwapchainGrallocUsageANDROID;
 extern PFN_vkQueueSignalReleaseImageANDROID vkQueueSignalReleaseImageANDROID;
 #endif // defined(VK_ANDROID_native_buffer)
+#if defined(VK_EXT_acquire_drm_display)
+extern PFN_vkAcquireDrmDisplayEXT vkAcquireDrmDisplayEXT;
+extern PFN_vkGetDrmDisplayEXT vkGetDrmDisplayEXT;
+#endif // defined(VK_EXT_acquire_drm_display)
 #if defined(VK_EXT_acquire_xlib_display)
 extern PFN_vkAcquireXlibDisplayEXT vkAcquireXlibDisplayEXT;
 extern PFN_vkGetRandROutputDisplayEXT vkGetRandROutputDisplayEXT;
@@ -265,6 +331,9 @@ extern PFN_vkGetBufferDeviceAddressEXT vkGetBufferDeviceAddressEXT;
 extern PFN_vkGetCalibratedTimestampsEXT vkGetCalibratedTimestampsEXT;
 extern PFN_vkGetPhysicalDeviceCalibrateableTimeDomainsEXT vkGetPhysicalDeviceCalibrateableTimeDomainsEXT;
 #endif // defined(VK_EXT_calibrated_timestamps)
+#if defined(VK_EXT_color_write_enable)
+extern PFN_vkCmdSetColorWriteEnableEXT vkCmdSetColorWriteEnableEXT;
+#endif // defined(VK_EXT_color_write_enable)
 #if defined(VK_EXT_conditional_rendering)
 extern PFN_vkCmdBeginConditionalRenderingEXT vkCmdBeginConditionalRenderingEXT;
 extern PFN_vkCmdEndConditionalRenderingEXT vkCmdEndConditionalRenderingEXT;
@@ -327,6 +396,13 @@ extern PFN_vkCmdSetStencilOpEXT vkCmdSetStencilOpEXT;
 extern PFN_vkCmdSetStencilTestEnableEXT vkCmdSetStencilTestEnableEXT;
 extern PFN_vkCmdSetViewportWithCountEXT vkCmdSetViewportWithCountEXT;
 #endif // defined(VK_EXT_extended_dynamic_state)
+#if defined(VK_EXT_extended_dynamic_state2)
+extern PFN_vkCmdSetDepthBiasEnableEXT vkCmdSetDepthBiasEnableEXT;
+extern PFN_vkCmdSetLogicOpEXT vkCmdSetLogicOpEXT;
+extern PFN_vkCmdSetPatchControlPointsEXT vkCmdSetPatchControlPointsEXT;
+extern PFN_vkCmdSetPrimitiveRestartEnableEXT vkCmdSetPrimitiveRestartEnableEXT;
+extern PFN_vkCmdSetRasterizerDiscardEnableEXT vkCmdSetRasterizerDiscardEnableEXT;
+#endif // defined(VK_EXT_extended_dynamic_state2)
 #if defined(VK_EXT_external_memory_host)
 extern PFN_vkGetMemoryHostPointerPropertiesEXT vkGetMemoryHostPointerPropertiesEXT;
 #endif // defined(VK_EXT_external_memory_host)
@@ -344,15 +420,31 @@ extern PFN_vkCreateHeadlessSurfaceEXT vkCreateHeadlessSurfaceEXT;
 #if defined(VK_EXT_host_query_reset)
 extern PFN_vkResetQueryPoolEXT vkResetQueryPoolEXT;
 #endif // defined(VK_EXT_host_query_reset)
+#if defined(VK_EXT_image_compression_control)
+extern PFN_vkGetImageSubresourceLayout2EXT vkGetImageSubresourceLayout2EXT;
+#endif // defined(VK_EXT_image_compression_control)
 #if defined(VK_EXT_image_drm_format_modifier)
 extern PFN_vkGetImageDrmFormatModifierPropertiesEXT vkGetImageDrmFormatModifierPropertiesEXT;
 #endif // defined(VK_EXT_image_drm_format_modifier)
 #if defined(VK_EXT_line_rasterization)
 extern PFN_vkCmdSetLineStippleEXT vkCmdSetLineStippleEXT;
 #endif // defined(VK_EXT_line_rasterization)
+#if defined(VK_EXT_metal_objects)
+extern PFN_vkExportMetalObjectsEXT vkExportMetalObjectsEXT;
+#endif // defined(VK_EXT_metal_objects)
 #if defined(VK_EXT_metal_surface)
 extern PFN_vkCreateMetalSurfaceEXT vkCreateMetalSurfaceEXT;
 #endif // defined(VK_EXT_metal_surface)
+#if defined(VK_EXT_multi_draw)
+extern PFN_vkCmdDrawMultiEXT vkCmdDrawMultiEXT;
+extern PFN_vkCmdDrawMultiIndexedEXT vkCmdDrawMultiIndexedEXT;
+#endif // defined(VK_EXT_multi_draw)
+#if defined(VK_EXT_pageable_device_local_memory)
+extern PFN_vkSetDeviceMemoryPriorityEXT vkSetDeviceMemoryPriorityEXT;
+#endif // defined(VK_EXT_pageable_device_local_memory)
+#if defined(VK_EXT_pipeline_properties)
+extern PFN_vkGetPipelinePropertiesEXT vkGetPipelinePropertiesEXT;
+#endif // defined(VK_EXT_pipeline_properties)
 #if defined(VK_EXT_private_data)
 extern PFN_vkCreatePrivateDataSlotEXT vkCreatePrivateDataSlotEXT;
 extern PFN_vkDestroyPrivateDataSlotEXT vkDestroyPrivateDataSlotEXT;
@@ -380,6 +472,24 @@ extern PFN_vkDestroyValidationCacheEXT vkDestroyValidationCacheEXT;
 extern PFN_vkGetValidationCacheDataEXT vkGetValidationCacheDataEXT;
 extern PFN_vkMergeValidationCachesEXT vkMergeValidationCachesEXT;
 #endif // defined(VK_EXT_validation_cache)
+#if defined(VK_EXT_vertex_input_dynamic_state)
+extern PFN_vkCmdSetVertexInputEXT vkCmdSetVertexInputEXT;
+#endif // defined(VK_EXT_vertex_input_dynamic_state)
+#if defined(VK_FUCHSIA_buffer_collection)
+extern PFN_vkCreateBufferCollectionFUCHSIA vkCreateBufferCollectionFUCHSIA;
+extern PFN_vkDestroyBufferCollectionFUCHSIA vkDestroyBufferCollectionFUCHSIA;
+extern PFN_vkGetBufferCollectionPropertiesFUCHSIA vkGetBufferCollectionPropertiesFUCHSIA;
+extern PFN_vkSetBufferCollectionBufferConstraintsFUCHSIA vkSetBufferCollectionBufferConstraintsFUCHSIA;
+extern PFN_vkSetBufferCollectionImageConstraintsFUCHSIA vkSetBufferCollectionImageConstraintsFUCHSIA;
+#endif // defined(VK_FUCHSIA_buffer_collection)
+#if defined(VK_FUCHSIA_external_memory)
+extern PFN_vkGetMemoryZirconHandleFUCHSIA vkGetMemoryZirconHandleFUCHSIA;
+extern PFN_vkGetMemoryZirconHandlePropertiesFUCHSIA vkGetMemoryZirconHandlePropertiesFUCHSIA;
+#endif // defined(VK_FUCHSIA_external_memory)
+#if defined(VK_FUCHSIA_external_semaphore)
+extern PFN_vkGetSemaphoreZirconHandleFUCHSIA vkGetSemaphoreZirconHandleFUCHSIA;
+extern PFN_vkImportSemaphoreZirconHandleFUCHSIA vkImportSemaphoreZirconHandleFUCHSIA;
+#endif // defined(VK_FUCHSIA_external_semaphore)
 #if defined(VK_FUCHSIA_imagepipe_surface)
 extern PFN_vkCreateImagePipeSurfaceFUCHSIA vkCreateImagePipeSurfaceFUCHSIA;
 #endif // defined(VK_FUCHSIA_imagepipe_surface)
@@ -390,6 +500,13 @@ extern PFN_vkCreateStreamDescriptorSurfaceGGP vkCreateStreamDescriptorSurfaceGGP
 extern PFN_vkGetPastPresentationTimingGOOGLE vkGetPastPresentationTimingGOOGLE;
 extern PFN_vkGetRefreshCycleDurationGOOGLE vkGetRefreshCycleDurationGOOGLE;
 #endif // defined(VK_GOOGLE_display_timing)
+#if defined(VK_HUAWEI_invocation_mask)
+extern PFN_vkCmdBindInvocationMaskHUAWEI vkCmdBindInvocationMaskHUAWEI;
+#endif // defined(VK_HUAWEI_invocation_mask)
+#if defined(VK_HUAWEI_subpass_shading)
+extern PFN_vkCmdSubpassShadingHUAWEI vkCmdSubpassShadingHUAWEI;
+extern PFN_vkGetDeviceSubpassShadingMaxWorkgroupSizeHUAWEI vkGetDeviceSubpassShadingMaxWorkgroupSizeHUAWEI;
+#endif // defined(VK_HUAWEI_subpass_shading)
 #if defined(VK_INTEL_performance_query)
 extern PFN_vkAcquirePerformanceConfigurationINTEL vkAcquirePerformanceConfigurationINTEL;
 extern PFN_vkCmdSetPerformanceMarkerINTEL vkCmdSetPerformanceMarkerINTEL;
@@ -401,6 +518,24 @@ extern PFN_vkQueueSetPerformanceConfigurationINTEL vkQueueSetPerformanceConfigur
 extern PFN_vkReleasePerformanceConfigurationINTEL vkReleasePerformanceConfigurationINTEL;
 extern PFN_vkUninitializePerformanceApiINTEL vkUninitializePerformanceApiINTEL;
 #endif // defined(VK_INTEL_performance_query)
+#if defined(VK_KHR_acceleration_structure)
+extern PFN_vkBuildAccelerationStructuresKHR vkBuildAccelerationStructuresKHR;
+extern PFN_vkCmdBuildAccelerationStructuresIndirectKHR vkCmdBuildAccelerationStructuresIndirectKHR;
+extern PFN_vkCmdBuildAccelerationStructuresKHR vkCmdBuildAccelerationStructuresKHR;
+extern PFN_vkCmdCopyAccelerationStructureKHR vkCmdCopyAccelerationStructureKHR;
+extern PFN_vkCmdCopyAccelerationStructureToMemoryKHR vkCmdCopyAccelerationStructureToMemoryKHR;
+extern PFN_vkCmdCopyMemoryToAccelerationStructureKHR vkCmdCopyMemoryToAccelerationStructureKHR;
+extern PFN_vkCmdWriteAccelerationStructuresPropertiesKHR vkCmdWriteAccelerationStructuresPropertiesKHR;
+extern PFN_vkCopyAccelerationStructureKHR vkCopyAccelerationStructureKHR;
+extern PFN_vkCopyAccelerationStructureToMemoryKHR vkCopyAccelerationStructureToMemoryKHR;
+extern PFN_vkCopyMemoryToAccelerationStructureKHR vkCopyMemoryToAccelerationStructureKHR;
+extern PFN_vkCreateAccelerationStructureKHR vkCreateAccelerationStructureKHR;
+extern PFN_vkDestroyAccelerationStructureKHR vkDestroyAccelerationStructureKHR;
+extern PFN_vkGetAccelerationStructureBuildSizesKHR vkGetAccelerationStructureBuildSizesKHR;
+extern PFN_vkGetAccelerationStructureDeviceAddressKHR vkGetAccelerationStructureDeviceAddressKHR;
+extern PFN_vkGetDeviceAccelerationStructureCompatibilityKHR vkGetDeviceAccelerationStructureCompatibilityKHR;
+extern PFN_vkWriteAccelerationStructuresPropertiesKHR vkWriteAccelerationStructuresPropertiesKHR;
+#endif // defined(VK_KHR_acceleration_structure)
 #if defined(VK_KHR_android_surface)
 extern PFN_vkCreateAndroidSurfaceKHR vkCreateAndroidSurfaceKHR;
 #endif // defined(VK_KHR_android_surface)
@@ -413,6 +548,14 @@ extern PFN_vkGetBufferDeviceAddressKHR vkGetBufferDeviceAddressKHR;
 extern PFN_vkGetBufferOpaqueCaptureAddressKHR vkGetBufferOpaqueCaptureAddressKHR;
 extern PFN_vkGetDeviceMemoryOpaqueCaptureAddressKHR vkGetDeviceMemoryOpaqueCaptureAddressKHR;
 #endif // defined(VK_KHR_buffer_device_address)
+#if defined(VK_KHR_copy_commands2)
+extern PFN_vkCmdBlitImage2KHR vkCmdBlitImage2KHR;
+extern PFN_vkCmdCopyBuffer2KHR vkCmdCopyBuffer2KHR;
+extern PFN_vkCmdCopyBufferToImage2KHR vkCmdCopyBufferToImage2KHR;
+extern PFN_vkCmdCopyImage2KHR vkCmdCopyImage2KHR;
+extern PFN_vkCmdCopyImageToBuffer2KHR vkCmdCopyImageToBuffer2KHR;
+extern PFN_vkCmdResolveImage2KHR vkCmdResolveImage2KHR;
+#endif // defined(VK_KHR_copy_commands2)
 #if defined(VK_KHR_create_renderpass2)
 extern PFN_vkCmdBeginRenderPass2KHR vkCmdBeginRenderPass2KHR;
 extern PFN_vkCmdEndRenderPass2KHR vkCmdEndRenderPass2KHR;
@@ -455,6 +598,10 @@ extern PFN_vkCreateSharedSwapchainsKHR vkCreateSharedSwapchainsKHR;
 extern PFN_vkCmdDrawIndexedIndirectCountKHR vkCmdDrawIndexedIndirectCountKHR;
 extern PFN_vkCmdDrawIndirectCountKHR vkCmdDrawIndirectCountKHR;
 #endif // defined(VK_KHR_draw_indirect_count)
+#if defined(VK_KHR_dynamic_rendering)
+extern PFN_vkCmdBeginRenderingKHR vkCmdBeginRenderingKHR;
+extern PFN_vkCmdEndRenderingKHR vkCmdEndRenderingKHR;
+#endif // defined(VK_KHR_dynamic_rendering)
 #if defined(VK_KHR_external_fence_capabilities)
 extern PFN_vkGetPhysicalDeviceExternalFencePropertiesKHR vkGetPhysicalDeviceExternalFencePropertiesKHR;
 #endif // defined(VK_KHR_external_fence_capabilities)
@@ -488,6 +635,10 @@ extern PFN_vkImportSemaphoreFdKHR vkImportSemaphoreFdKHR;
 extern PFN_vkGetSemaphoreWin32HandleKHR vkGetSemaphoreWin32HandleKHR;
 extern PFN_vkImportSemaphoreWin32HandleKHR vkImportSemaphoreWin32HandleKHR;
 #endif // defined(VK_KHR_external_semaphore_win32)
+#if defined(VK_KHR_fragment_shading_rate)
+extern PFN_vkCmdSetFragmentShadingRateKHR vkCmdSetFragmentShadingRateKHR;
+extern PFN_vkGetPhysicalDeviceFragmentShadingRatesKHR vkGetPhysicalDeviceFragmentShadingRatesKHR;
+#endif // defined(VK_KHR_fragment_shading_rate)
 #if defined(VK_KHR_get_display_properties2)
 extern PFN_vkGetDisplayModeProperties2KHR vkGetDisplayModeProperties2KHR;
 extern PFN_vkGetDisplayPlaneCapabilities2KHR vkGetDisplayPlaneCapabilities2KHR;
@@ -518,6 +669,11 @@ extern PFN_vkTrimCommandPoolKHR vkTrimCommandPoolKHR;
 #if defined(VK_KHR_maintenance3)
 extern PFN_vkGetDescriptorSetLayoutSupportKHR vkGetDescriptorSetLayoutSupportKHR;
 #endif // defined(VK_KHR_maintenance3)
+#if defined(VK_KHR_maintenance4)
+extern PFN_vkGetDeviceBufferMemoryRequirementsKHR vkGetDeviceBufferMemoryRequirementsKHR;
+extern PFN_vkGetDeviceImageMemoryRequirementsKHR vkGetDeviceImageMemoryRequirementsKHR;
+extern PFN_vkGetDeviceImageSparseMemoryRequirementsKHR vkGetDeviceImageSparseMemoryRequirementsKHR;
+#endif // defined(VK_KHR_maintenance4)
 #if defined(VK_KHR_performance_query)
 extern PFN_vkAcquireProfilingLockKHR vkAcquireProfilingLockKHR;
 extern PFN_vkEnumeratePhysicalDeviceQueueFamilyPerformanceQueryCountersKHR vkEnumeratePhysicalDeviceQueueFamilyPerformanceQueryCountersKHR;
@@ -529,33 +685,24 @@ extern PFN_vkGetPipelineExecutableInternalRepresentationsKHR vkGetPipelineExecut
 extern PFN_vkGetPipelineExecutablePropertiesKHR vkGetPipelineExecutablePropertiesKHR;
 extern PFN_vkGetPipelineExecutableStatisticsKHR vkGetPipelineExecutableStatisticsKHR;
 #endif // defined(VK_KHR_pipeline_executable_properties)
+#if defined(VK_KHR_present_wait)
+extern PFN_vkWaitForPresentKHR vkWaitForPresentKHR;
+#endif // defined(VK_KHR_present_wait)
 #if defined(VK_KHR_push_descriptor)
 extern PFN_vkCmdPushDescriptorSetKHR vkCmdPushDescriptorSetKHR;
 #endif // defined(VK_KHR_push_descriptor)
-#if defined(VK_KHR_ray_tracing)
-extern PFN_vkBindAccelerationStructureMemoryKHR vkBindAccelerationStructureMemoryKHR;
-extern PFN_vkBuildAccelerationStructureKHR vkBuildAccelerationStructureKHR;
-extern PFN_vkCmdBuildAccelerationStructureIndirectKHR vkCmdBuildAccelerationStructureIndirectKHR;
-extern PFN_vkCmdBuildAccelerationStructureKHR vkCmdBuildAccelerationStructureKHR;
-extern PFN_vkCmdCopyAccelerationStructureKHR vkCmdCopyAccelerationStructureKHR;
-extern PFN_vkCmdCopyAccelerationStructureToMemoryKHR vkCmdCopyAccelerationStructureToMemoryKHR;
-extern PFN_vkCmdCopyMemoryToAccelerationStructureKHR vkCmdCopyMemoryToAccelerationStructureKHR;
+#if (defined(VK_KHR_ray_tracing_maintenance1) && defined(VK_KHR_ray_tracing_pipeline))
+extern PFN_vkCmdTraceRaysIndirect2KHR vkCmdTraceRaysIndirect2KHR;
+#endif // (defined(VK_KHR_ray_tracing_maintenance1) && defined(VK_KHR_ray_tracing_pipeline))
+#if defined(VK_KHR_ray_tracing_pipeline)
+extern PFN_vkCmdSetRayTracingPipelineStackSizeKHR vkCmdSetRayTracingPipelineStackSizeKHR;
 extern PFN_vkCmdTraceRaysIndirectKHR vkCmdTraceRaysIndirectKHR;
 extern PFN_vkCmdTraceRaysKHR vkCmdTraceRaysKHR;
-extern PFN_vkCmdWriteAccelerationStructuresPropertiesKHR vkCmdWriteAccelerationStructuresPropertiesKHR;
-extern PFN_vkCopyAccelerationStructureKHR vkCopyAccelerationStructureKHR;
-extern PFN_vkCopyAccelerationStructureToMemoryKHR vkCopyAccelerationStructureToMemoryKHR;
-extern PFN_vkCopyMemoryToAccelerationStructureKHR vkCopyMemoryToAccelerationStructureKHR;
-extern PFN_vkCreateAccelerationStructureKHR vkCreateAccelerationStructureKHR;
 extern PFN_vkCreateRayTracingPipelinesKHR vkCreateRayTracingPipelinesKHR;
-extern PFN_vkDestroyAccelerationStructureKHR vkDestroyAccelerationStructureKHR;
-extern PFN_vkGetAccelerationStructureDeviceAddressKHR vkGetAccelerationStructureDeviceAddressKHR;
-extern PFN_vkGetAccelerationStructureMemoryRequirementsKHR vkGetAccelerationStructureMemoryRequirementsKHR;
-extern PFN_vkGetDeviceAccelerationStructureCompatibilityKHR vkGetDeviceAccelerationStructureCompatibilityKHR;
 extern PFN_vkGetRayTracingCaptureReplayShaderGroupHandlesKHR vkGetRayTracingCaptureReplayShaderGroupHandlesKHR;
 extern PFN_vkGetRayTracingShaderGroupHandlesKHR vkGetRayTracingShaderGroupHandlesKHR;
-extern PFN_vkWriteAccelerationStructuresPropertiesKHR vkWriteAccelerationStructuresPropertiesKHR;
-#endif // defined(VK_KHR_ray_tracing)
+extern PFN_vkGetRayTracingShaderGroupStackSizeKHR vkGetRayTracingShaderGroupStackSizeKHR;
+#endif // defined(VK_KHR_ray_tracing_pipeline)
 #if defined(VK_KHR_sampler_ycbcr_conversion)
 extern PFN_vkCreateSamplerYcbcrConversionKHR vkCreateSamplerYcbcrConversionKHR;
 extern PFN_vkDestroySamplerYcbcrConversionKHR vkDestroySamplerYcbcrConversionKHR;
@@ -577,11 +724,45 @@ extern PFN_vkDestroySwapchainKHR vkDestroySwapchainKHR;
 extern PFN_vkGetSwapchainImagesKHR vkGetSwapchainImagesKHR;
 extern PFN_vkQueuePresentKHR vkQueuePresentKHR;
 #endif // defined(VK_KHR_swapchain)
+#if defined(VK_KHR_synchronization2)
+extern PFN_vkCmdPipelineBarrier2KHR vkCmdPipelineBarrier2KHR;
+extern PFN_vkCmdResetEvent2KHR vkCmdResetEvent2KHR;
+extern PFN_vkCmdSetEvent2KHR vkCmdSetEvent2KHR;
+extern PFN_vkCmdWaitEvents2KHR vkCmdWaitEvents2KHR;
+extern PFN_vkCmdWriteTimestamp2KHR vkCmdWriteTimestamp2KHR;
+extern PFN_vkQueueSubmit2KHR vkQueueSubmit2KHR;
+#endif // defined(VK_KHR_synchronization2)
+#if (defined(VK_KHR_synchronization2) && defined(VK_AMD_buffer_marker))
+extern PFN_vkCmdWriteBufferMarker2AMD vkCmdWriteBufferMarker2AMD;
+#endif // (defined(VK_KHR_synchronization2) && defined(VK_AMD_buffer_marker))
+#if (defined(VK_KHR_synchronization2) && defined(VK_NV_device_diagnostic_checkpoints))
+extern PFN_vkGetQueueCheckpointData2NV vkGetQueueCheckpointData2NV;
+#endif // (defined(VK_KHR_synchronization2) && defined(VK_NV_device_diagnostic_checkpoints))
 #if defined(VK_KHR_timeline_semaphore)
 extern PFN_vkGetSemaphoreCounterValueKHR vkGetSemaphoreCounterValueKHR;
 extern PFN_vkSignalSemaphoreKHR vkSignalSemaphoreKHR;
 extern PFN_vkWaitSemaphoresKHR vkWaitSemaphoresKHR;
 #endif // defined(VK_KHR_timeline_semaphore)
+#if defined(VK_KHR_video_decode_queue)
+extern PFN_vkCmdDecodeVideoKHR vkCmdDecodeVideoKHR;
+#endif // defined(VK_KHR_video_decode_queue)
+#if defined(VK_KHR_video_encode_queue)
+extern PFN_vkCmdEncodeVideoKHR vkCmdEncodeVideoKHR;
+#endif // defined(VK_KHR_video_encode_queue)
+#if defined(VK_KHR_video_queue)
+extern PFN_vkBindVideoSessionMemoryKHR vkBindVideoSessionMemoryKHR;
+extern PFN_vkCmdBeginVideoCodingKHR vkCmdBeginVideoCodingKHR;
+extern PFN_vkCmdControlVideoCodingKHR vkCmdControlVideoCodingKHR;
+extern PFN_vkCmdEndVideoCodingKHR vkCmdEndVideoCodingKHR;
+extern PFN_vkCreateVideoSessionKHR vkCreateVideoSessionKHR;
+extern PFN_vkCreateVideoSessionParametersKHR vkCreateVideoSessionParametersKHR;
+extern PFN_vkDestroyVideoSessionKHR vkDestroyVideoSessionKHR;
+extern PFN_vkDestroyVideoSessionParametersKHR vkDestroyVideoSessionParametersKHR;
+extern PFN_vkGetPhysicalDeviceVideoCapabilitiesKHR vkGetPhysicalDeviceVideoCapabilitiesKHR;
+extern PFN_vkGetPhysicalDeviceVideoFormatPropertiesKHR vkGetPhysicalDeviceVideoFormatPropertiesKHR;
+extern PFN_vkGetVideoSessionMemoryRequirementsKHR vkGetVideoSessionMemoryRequirementsKHR;
+extern PFN_vkUpdateVideoSessionParametersKHR vkUpdateVideoSessionParametersKHR;
+#endif // defined(VK_KHR_video_queue)
 #if defined(VK_KHR_wayland_surface)
 extern PFN_vkCreateWaylandSurfaceKHR vkCreateWaylandSurfaceKHR;
 extern PFN_vkGetPhysicalDeviceWaylandPresentationSupportKHR vkGetPhysicalDeviceWaylandPresentationSupportKHR;
@@ -607,10 +788,21 @@ extern PFN_vkCreateMacOSSurfaceMVK vkCreateMacOSSurfaceMVK;
 #if defined(VK_NN_vi_surface)
 extern PFN_vkCreateViSurfaceNN vkCreateViSurfaceNN;
 #endif // defined(VK_NN_vi_surface)
+#if defined(VK_NVX_binary_import)
+extern PFN_vkCmdCuLaunchKernelNVX vkCmdCuLaunchKernelNVX;
+extern PFN_vkCreateCuFunctionNVX vkCreateCuFunctionNVX;
+extern PFN_vkCreateCuModuleNVX vkCreateCuModuleNVX;
+extern PFN_vkDestroyCuFunctionNVX vkDestroyCuFunctionNVX;
+extern PFN_vkDestroyCuModuleNVX vkDestroyCuModuleNVX;
+#endif // defined(VK_NVX_binary_import)
 #if defined(VK_NVX_image_view_handle)
 extern PFN_vkGetImageViewAddressNVX vkGetImageViewAddressNVX;
 extern PFN_vkGetImageViewHandleNVX vkGetImageViewHandleNVX;
 #endif // defined(VK_NVX_image_view_handle)
+#if defined(VK_NV_acquire_winrt_display)
+extern PFN_vkAcquireWinrtDisplayNV vkAcquireWinrtDisplayNV;
+extern PFN_vkGetWinrtDisplayNV vkGetWinrtDisplayNV;
+#endif // defined(VK_NV_acquire_winrt_display)
 #if defined(VK_NV_clip_space_w_scaling)
 extern PFN_vkCmdSetViewportWScalingNV vkCmdSetViewportWScalingNV;
 #endif // defined(VK_NV_clip_space_w_scaling)
@@ -635,9 +827,15 @@ extern PFN_vkGetGeneratedCommandsMemoryRequirementsNV vkGetGeneratedCommandsMemo
 #if defined(VK_NV_external_memory_capabilities)
 extern PFN_vkGetPhysicalDeviceExternalImageFormatPropertiesNV vkGetPhysicalDeviceExternalImageFormatPropertiesNV;
 #endif // defined(VK_NV_external_memory_capabilities)
+#if defined(VK_NV_external_memory_rdma)
+extern PFN_vkGetMemoryRemoteAddressNV vkGetMemoryRemoteAddressNV;
+#endif // defined(VK_NV_external_memory_rdma)
 #if defined(VK_NV_external_memory_win32)
 extern PFN_vkGetMemoryWin32HandleNV vkGetMemoryWin32HandleNV;
 #endif // defined(VK_NV_external_memory_win32)
+#if defined(VK_NV_fragment_shading_rate_enums)
+extern PFN_vkCmdSetFragmentShadingRateEnumNV vkCmdSetFragmentShadingRateEnumNV;
+#endif // defined(VK_NV_fragment_shading_rate_enums)
 #if defined(VK_NV_mesh_shader)
 extern PFN_vkCmdDrawMeshTasksIndirectCountNV vkCmdDrawMeshTasksIndirectCountNV;
 extern PFN_vkCmdDrawMeshTasksIndirectNV vkCmdDrawMeshTasksIndirectNV;
@@ -665,6 +863,14 @@ extern PFN_vkCmdBindShadingRateImageNV vkCmdBindShadingRateImageNV;
 extern PFN_vkCmdSetCoarseSampleOrderNV vkCmdSetCoarseSampleOrderNV;
 extern PFN_vkCmdSetViewportShadingRatePaletteNV vkCmdSetViewportShadingRatePaletteNV;
 #endif // defined(VK_NV_shading_rate_image)
+#if defined(VK_QNX_screen_surface)
+extern PFN_vkCreateScreenSurfaceQNX vkCreateScreenSurfaceQNX;
+extern PFN_vkGetPhysicalDeviceScreenPresentationSupportQNX vkGetPhysicalDeviceScreenPresentationSupportQNX;
+#endif // defined(VK_QNX_screen_surface)
+#if defined(VK_VALVE_descriptor_set_host_mapping)
+extern PFN_vkGetDescriptorSetHostMappingVALVE vkGetDescriptorSetHostMappingVALVE;
+extern PFN_vkGetDescriptorSetLayoutHostMappingInfoVALVE vkGetDescriptorSetLayoutHostMappingInfoVALVE;
+#endif // defined(VK_VALVE_descriptor_set_host_mapping)
 #if (defined(VK_EXT_full_screen_exclusive) && defined(VK_KHR_device_group)) || (defined(VK_EXT_full_screen_exclusive) && defined(VK_VERSION_1_1))
 extern PFN_vkGetDeviceGroupSurfacePresentModes2EXT vkGetDeviceGroupSurfacePresentModes2EXT;
 #endif // (defined(VK_EXT_full_screen_exclusive) && defined(VK_KHR_device_group)) || (defined(VK_EXT_full_screen_exclusive) && defined(VK_VERSION_1_1))
@@ -679,6 +885,8 @@ extern PFN_vkGetPhysicalDevicePresentRectanglesKHR vkGetPhysicalDevicePresentRec
 #if (defined(VK_KHR_device_group) && defined(VK_KHR_swapchain)) || (defined(VK_KHR_swapchain) && defined(VK_VERSION_1_1))
 extern PFN_vkAcquireNextImage2KHR vkAcquireNextImage2KHR;
 #endif // (defined(VK_KHR_device_group) && defined(VK_KHR_swapchain)) || (defined(VK_KHR_swapchain) && defined(VK_VERSION_1_1))
+
+} // namespace bluevk
 
 #if !defined(NDEBUG)
 #include <utils/Log.h>
@@ -724,6 +932,7 @@ utils::io::ostream& operator<<(utils::io::ostream& out, const VkPresentModeKHR& 
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkColorSpaceKHR& value);
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkTimeDomainEXT& value);
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkDebugReportObjectTypeEXT& value);
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkDeviceMemoryReportEventTypeEXT& value);
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkRasterizationOrderAMD& value);
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkValidationCheckEXT& value);
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkValidationFeatureEnableEXT& value);
@@ -745,12 +954,21 @@ utils::io::ostream& operator<<(utils::io::ostream& out, const VkCoverageModulati
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkCoverageReductionModeNV& value);
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkValidationCacheHeaderVersionEXT& value);
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkShaderInfoTypeAMD& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkQueueGlobalPriorityEXT& value);
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkQueueGlobalPriorityKHR& value);
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkConservativeRasterizationModeEXT& value);
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkVendorId& value);
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkDriverId& value);
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkShadingRatePaletteEntryNV& value);
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkCoarseSampleOrderTypeNV& value);
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkCopyAccelerationStructureModeKHR& value);
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkBuildAccelerationStructureModeKHR& value);
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkAccelerationStructureTypeKHR& value);
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkGeometryTypeKHR& value);
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkAccelerationStructureMemoryRequirementsTypeNV& value);
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkAccelerationStructureBuildTypeKHR& value);
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkRayTracingShaderGroupTypeKHR& value);
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkAccelerationStructureCompatibilityKHR& value);
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkShaderGroupShaderKHR& value);
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkMemoryOverallocationBehaviorAMD& value);
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkScopeNV& value);
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkComponentTypeNV& value);
@@ -765,80 +983,12 @@ utils::io::ostream& operator<<(utils::io::ostream& out, const VkPerformanceValue
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkShaderFloatControlsIndependence& value);
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkPipelineExecutableStatisticFormatKHR& value);
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkLineRasterizationModeEXT& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkPipelineCacheCreateFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkCullModeFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkQueueFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkRenderPassCreateFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDeviceQueueCreateFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkMemoryPropertyFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkMemoryHeapFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkAccessFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkBufferUsageFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkBufferCreateFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkShaderStageFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkImageUsageFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkImageCreateFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkImageViewCreateFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSamplerCreateFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkPipelineCreateFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkPipelineShaderStageCreateFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkColorComponentFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkFenceCreateFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkFormatFeatureFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkQueryControlFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkQueryResultFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkCommandBufferUsageFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkQueryPipelineStatisticFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkImageAspectFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSparseImageFormatFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSparseMemoryBindFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkPipelineStageFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkCommandPoolCreateFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkCommandPoolResetFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkCommandBufferResetFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSampleCountFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkAttachmentDescriptionFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDescriptorPoolCreateFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDependencyFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSemaphoreWaitFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDisplayPlaneAlphaFlagBitsKHR& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkCompositeAlphaFlagBitsKHR& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSurfaceTransformFlagBitsKHR& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDebugReportFlagBitsEXT& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkExternalMemoryHandleTypeFlagBitsNV& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkExternalMemoryFeatureFlagBitsNV& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSubgroupFeatureFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkIndirectCommandsLayoutUsageFlagBitsNV& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkIndirectStateFlagBitsNV& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkPrivateDataSlotCreateFlagBitsEXT& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDescriptorSetLayoutCreateFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkExternalMemoryHandleTypeFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkExternalMemoryFeatureFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkExternalSemaphoreFeatureFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSemaphoreImportFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkExternalFenceHandleTypeFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkExternalFenceFeatureFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkFenceImportFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSurfaceCounterFlagBitsEXT& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkPeerMemoryFeatureFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkMemoryAllocateFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDeviceGroupPresentModeFlagBitsKHR& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSwapchainCreateFlagBitsKHR& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSubpassDescriptionFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDebugUtilsMessageSeverityFlagBitsEXT& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDebugUtilsMessageTypeFlagBitsEXT& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDescriptorBindingFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkConditionalRenderingFlagBitsEXT& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkResolveModeFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkFramebufferCreateFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDeviceDiagnosticsConfigFlagBitsNV& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkPipelineCreationFeedbackFlagBitsEXT& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkPerformanceCounterDescriptionFlagBitsKHR& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkAcquireProfilingLockFlagBitsKHR& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkShaderCorePropertiesFlagBitsAMD& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkShaderModuleCreateFlagBits& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkPipelineCompilerControlFlagBitsAMD& value);
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkToolPurposeFlagBitsEXT& value);
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkFragmentShadingRateCombinerOpKHR& value);
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkFragmentShadingRateNV& value);
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkFragmentShadingRateTypeNV& value);
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkSubpassMergeStatusEXT& value);
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkProvokingVertexModeEXT& value);
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkAccelerationStructureMotionInstanceTypeNV& value);
 #endif
 
 #endif // TNT_FILAMENT_BLUEVK_H

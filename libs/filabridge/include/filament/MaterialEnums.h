@@ -20,6 +20,7 @@
 #define TNT_FILAMENT_MATERIAL_ENUM_H
 
 #include <utils/bitset.h>
+#include <utils/BitmaskEnum.h>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -27,7 +28,7 @@
 namespace filament {
 
 // update this when a new version of filament wouldn't work with older materials
-static constexpr size_t MATERIAL_VERSION = 10;
+static constexpr size_t MATERIAL_VERSION = 42;
 
 /**
  * Supported shading models
@@ -46,6 +47,16 @@ enum class Shading : uint8_t {
 enum class Interpolation : uint8_t {
     SMOOTH,                 //!< default, smooth interpolation
     FLAT                    //!< flat interpolation
+};
+
+/**
+ * Shader quality, affect some global quality parameters
+ */
+enum class ShaderQuality : int8_t {
+    DEFAULT = -1,   // LOW on mobile, HIGH on desktop
+    LOW     = 0,    // enable optimizations that can slightly affect correctness
+    NORMAL  = 1,    // normal quality, correctness honored
+    HIGH    = 2     // higher quality (e.g. better upscaling, etc...)
 };
 
 /**
@@ -126,7 +137,8 @@ enum VertexAttribute : uint8_t {
     CUSTOM6         = 14,
     CUSTOM7         = 15,
 
-    // Aliases for vertex morphing.
+    // Aliases for legacy vertex morphing.
+    // See RenderableManager::Builder::morphing().
     MORPH_POSITION_0 = CUSTOM0,
     MORPH_POSITION_1 = CUSTOM1,
     MORPH_POSITION_2 = CUSTOM2,
@@ -139,7 +151,8 @@ enum VertexAttribute : uint8_t {
     // this is limited by driver::MAX_VERTEX_ATTRIBUTE_COUNT
 };
 
-static constexpr size_t MAX_MORPH_TARGETS = 4;
+static constexpr size_t MAX_LEGACY_MORPH_TARGETS = 4;
+static constexpr size_t MAX_MORPH_TARGETS = 256; // this is limited by filament::CONFIG_MAX_MORPH_TARGET_COUNT
 static constexpr size_t MAX_CUSTOM_ATTRIBUTES = 8;
 
 /**
@@ -148,6 +161,7 @@ static constexpr size_t MAX_CUSTOM_ATTRIBUTES = 8;
 enum class MaterialDomain : uint8_t {
     SURFACE         = 0, //!< shaders applied to renderables
     POST_PROCESS    = 1, //!< shaders applied to rendered buffers
+    COMPUTE         = 2, //!< compute shader
 };
 
 /**
@@ -176,10 +190,18 @@ enum class RefractionType : uint8_t {
     THIN            = 1, //!< refraction through thin objects (e.g. window)
 };
 
+/**
+ * Reflection mode
+ */
+enum class ReflectionMode : uint8_t {
+    DEFAULT         = 0, //! reflections sample from the scene's IBL only
+    SCREEN_SPACE    = 1, //! reflections sample from screen space, and fallback to the scene's IBL
+};
+
 // can't really use std::underlying_type<AttributeIndex>::type because the driver takes a uint32_t
 using AttributeBitset = utils::bitset32;
 
-static constexpr size_t MATERIAL_PROPERTIES_COUNT = 25;
+static constexpr size_t MATERIAL_PROPERTIES_COUNT = 26;
 enum class Property : uint8_t {
     BASE_COLOR,              //!< float4, all shading models
     ROUGHNESS,               //!< float,  lit shading models only
@@ -194,7 +216,8 @@ enum class Property : uint8_t {
     THICKNESS,               //!< float,  subsurface shading model only
     SUBSURFACE_POWER,        //!< float,  subsurface shading model only
     SUBSURFACE_COLOR,        //!< float3, subsurface and cloth shading models only
-    SHEEN_COLOR,             //!< float3, cloth shading model only
+    SHEEN_COLOR,             //!< float3, lit shading models only, except subsurface
+    SHEEN_ROUGHNESS,         //!< float3, lit shading models only, except subsurface and cloth
     SPECULAR_COLOR,          //!< float3, specular-glossiness shading model only
     GLOSSINESS,              //!< float,  specular-glossiness shading model only
     EMISSIVE,                //!< float4, all shading models
@@ -210,6 +233,23 @@ enum class Property : uint8_t {
     // when adding new Properties, make sure to update MATERIAL_PROPERTIES_COUNT
 };
 
+using UserVariantFilterMask = uint32_t;
+
+enum class UserVariantFilterBit : UserVariantFilterMask {
+    DIRECTIONAL_LIGHTING        = 0x01,         //!< Directional lighting
+    DYNAMIC_LIGHTING            = 0x02,         //!< Dynamic lighting
+    SHADOW_RECEIVER             = 0x04,         //!< Shadow receiver
+    SKINNING                    = 0x08,         //!< Skinning
+    FOG                         = 0x10,         //!< Fog
+    VSM                         = 0x20,         //!< Variance shadow maps
+    SSR                         = 0x40,         //!< Screen-space reflections
+    STE                         = 0x80,         //!< Instanced stereo rendering
+    ALL                         = 0xFF,
+};
+
 } // namespace filament
+
+template<> struct utils::EnableBitMaskOperators<filament::UserVariantFilterBit>
+        : public std::true_type {};
 
 #endif

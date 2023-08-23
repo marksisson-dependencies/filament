@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.19)
 project(filabridge)
 
 set(TARGET         filabridge)
@@ -10,11 +10,9 @@ set(PUBLIC_HDR_DIR include)
 file(GLOB_RECURSE PUBLIC_HDRS ${PUBLIC_HDR_DIR}/**/*.h)
 
 set(SRCS
-        src/SamplerBindingMap.cpp
         src/SamplerInterfaceBlock.cpp
-        src/UniformInterfaceBlock.cpp
-        src/UibGenerator.cpp
-        src/SibGenerator.cpp
+        src/BufferInterfaceBlock.cpp
+        src/Variant.cpp
 )
 
 # ==================================================================================================
@@ -24,6 +22,7 @@ include_directories(${PUBLIC_HDR_DIR})
 
 add_library(${TARGET} STATIC ${PUBLIC_HDRS} ${SRCS})
 target_include_directories(${TARGET} PUBLIC ${PUBLIC_HDR_DIR})
+set_target_properties(${TARGET} PROPERTIES FOLDER Libs)
 
 target_link_libraries(${TARGET} utils)
 target_link_libraries(${TARGET} math)

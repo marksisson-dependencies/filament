@@ -71,13 +71,12 @@ import static com.google.android.filament.Texture.Type.COMPRESSED;
  * @see MaterialInstance#setParameter(String, Texture, TextureSampler)
  */
 public class Texture {
+    private static final Sampler[] sSamplerValues = Sampler.values();
+    private static final InternalFormat[] sInternalFormatValues = InternalFormat.values();
+
     private long mNativeObject;
 
-    Texture(long nativeTexture) {
-        mNativeObject = nativeTexture;
-    }
-
-    public Texture(Engine engine, long nativeTexture) {
+    public Texture(long nativeTexture) {
         mNativeObject = nativeTexture;
     }
 
@@ -220,7 +219,50 @@ public class Texture {
         ETC2_EAC_RGBA8, ETC2_EAC_SRGBA8,
 
         // Available everywhere except Android/iOS
-        DXT1_RGB, DXT1_RGBA, DXT3_RGBA, DXT5_RGBA
+        DXT1_RGB, DXT1_RGBA, DXT3_RGBA, DXT5_RGBA,
+        DXT1_SRGB, DXT1_SRGBA, DXT3_SRGBA, DXT5_SRGBA,
+
+        // ASTC formats are available with a GLES extension
+        RGBA_ASTC_4x4,
+        RGBA_ASTC_5x4,
+        RGBA_ASTC_5x5,
+        RGBA_ASTC_6x5,
+        RGBA_ASTC_6x6,
+        RGBA_ASTC_8x5,
+        RGBA_ASTC_8x6,
+        RGBA_ASTC_8x8,
+        RGBA_ASTC_10x5,
+        RGBA_ASTC_10x6,
+        RGBA_ASTC_10x8,
+        RGBA_ASTC_10x10,
+        RGBA_ASTC_12x10,
+        RGBA_ASTC_12x12,
+        SRGB8_ALPHA8_ASTC_4x4,
+        SRGB8_ALPHA8_ASTC_5x4,
+        SRGB8_ALPHA8_ASTC_5x5,
+        SRGB8_ALPHA8_ASTC_6x5,
+        SRGB8_ALPHA8_ASTC_6x6,
+        SRGB8_ALPHA8_ASTC_8x5,
+        SRGB8_ALPHA8_ASTC_8x6,
+        SRGB8_ALPHA8_ASTC_8x8,
+        SRGB8_ALPHA8_ASTC_10x5,
+        SRGB8_ALPHA8_ASTC_10x6,
+        SRGB8_ALPHA8_ASTC_10x8,
+        SRGB8_ALPHA8_ASTC_10x10,
+        SRGB8_ALPHA8_ASTC_12x10,
+        SRGB8_ALPHA8_ASTC_12x12,
+
+        // RGTC formats available with a GLES extension
+        RED_RGTC1,              // BC4 unsigned
+        SIGNED_RED_RGTC1,       // BC4 signed
+        RED_GREEN_RGTC2,        // BC5 unsigned
+        SIGNED_RED_GREEN_RGTC2, // BC5 signed
+
+        // BPTC formats available with a GLES extension
+        RGB_BPTC_SIGNED_FLOAT,  // BC6H signed
+        RGB_BPTC_UNSIGNED_FLOAT,// BC6H unsigned
+        RGBA_BPTC_UNORM,        // BC7
+        SRGB_ALPHA_BPTC_UNORM   // BC7 sRGB
     }
 
     /**
@@ -235,7 +277,50 @@ public class Texture {
         ETC2_EAC_RGBA8, ETC2_EAC_SRGBA8,
 
         // Available everywhere except Android/iOS
-        DXT1_RGB, DXT1_RGBA, DXT3_RGBA, DXT5_RGBA
+        DXT1_RGB, DXT1_RGBA, DXT3_RGBA, DXT5_RGBA,
+        DXT1_SRGB, DXT1_SRGBA, DXT3_SRGBA, DXT5_SRGBA,
+
+        // ASTC formats are available with a GLES extension
+        RGBA_ASTC_4x4,
+        RGBA_ASTC_5x4,
+        RGBA_ASTC_5x5,
+        RGBA_ASTC_6x5,
+        RGBA_ASTC_6x6,
+        RGBA_ASTC_8x5,
+        RGBA_ASTC_8x6,
+        RGBA_ASTC_8x8,
+        RGBA_ASTC_10x5,
+        RGBA_ASTC_10x6,
+        RGBA_ASTC_10x8,
+        RGBA_ASTC_10x10,
+        RGBA_ASTC_12x10,
+        RGBA_ASTC_12x12,
+        SRGB8_ALPHA8_ASTC_4x4,
+        SRGB8_ALPHA8_ASTC_5x4,
+        SRGB8_ALPHA8_ASTC_5x5,
+        SRGB8_ALPHA8_ASTC_6x5,
+        SRGB8_ALPHA8_ASTC_6x6,
+        SRGB8_ALPHA8_ASTC_8x5,
+        SRGB8_ALPHA8_ASTC_8x6,
+        SRGB8_ALPHA8_ASTC_8x8,
+        SRGB8_ALPHA8_ASTC_10x5,
+        SRGB8_ALPHA8_ASTC_10x6,
+        SRGB8_ALPHA8_ASTC_10x8,
+        SRGB8_ALPHA8_ASTC_10x10,
+        SRGB8_ALPHA8_ASTC_12x10,
+        SRGB8_ALPHA8_ASTC_12x12,
+
+        // RGTC formats available with a GLES extension
+        RED_RGTC1,              // BC4 unsigned
+        SIGNED_RED_RGTC1,       // BC4 signed
+        RED_GREEN_RGTC2,        // BC5 unsigned
+        SIGNED_RED_GREEN_RGTC2, // BC5 signed
+
+        // BPTC formats available with a GLES extension
+        RGB_BPTC_SIGNED_FLOAT,  // BC6H signed
+        RGB_BPTC_UNSIGNED_FLOAT,// BC6H unsigned
+        RGBA_BPTC_UNORM,        // BC7
+        SRGB_ALPHA_BPTC_UNORM   // BC7 sRGB
     }
 
     /**
@@ -481,7 +566,7 @@ public class Texture {
          * @param alignment     Alignment in bytes.
          * @return              Size of the buffer in bytes.
          */
-        static int computeDataSize(@NonNull Format format, @NonNull Type type,
+        public static int computeDataSize(@NonNull Format format, @NonNull Type type,
                 int stride, int height, @IntRange(from = 1, to = 8) int alignment) {
             if (type == Type.COMPRESSED) {
                 return 0;
@@ -509,12 +594,15 @@ public class Texture {
                 case RGBA_INTEGER:
                     n = 4;
                     break;
+
+                default: throw new IllegalStateException("unsupported format enum");
             }
 
             int bpp = n;
             switch (type) {
                 case UBYTE:
                 case BYTE:
+                case COMPRESSED:
                     // nothing to do
                     break;
                 case USHORT:
@@ -530,6 +618,9 @@ public class Texture {
                 case UINT_10F_11F_11F_REV:
                     // Special case, format must be RGB and uses 4 bytes
                     bpp = 4;
+                    break;
+                case USHORT_565:
+                    bpp = 2;
                     break;
             }
 
@@ -560,6 +651,17 @@ public class Texture {
     public static boolean isTextureFormatSupported(@NonNull Engine engine,
             @NonNull InternalFormat format) {
         return nIsTextureFormatSupported(engine.getNativeObject(), format.ordinal());
+    }
+
+    /**
+     * Checks whether texture swizzling is supported in this {@link Engine}.
+     * This depends on the selected backend.
+     *
+     * @param engine {@link Engine}
+     * @return <code>true</code> if texture swizzling.
+     */
+    public static boolean isTextureSwizzleSupported(@NonNull Engine engine) {
+        return nIsTextureSwizzleSupported(engine.getNativeObject());
     }
 
     /**
@@ -679,6 +781,26 @@ public class Texture {
         }
 
         /**
+         * Specify a native texture to import as a Filament texture.
+         * <p>
+         * The texture id is backend-specific:
+         * <ul>
+         *   <li> OpenGL: GLuint texture ID </li>
+         * </ul>
+         * </p>
+         *
+         *
+         * @param id a backend specific texture identifier
+         *
+         * @return This Builder, for chaining calls.
+         */
+        @NonNull
+        public Builder importTexture(long id) {
+            nBuilderImportTexture(mNativeBuilder, id);
+            return this;
+        }
+
+        /**
          * Creates a new <code>Texture</code> instance.
          * @param engine The {@link Engine} to associate this <code>Texture</code> with.
          * @return A newly created <code>Texture</code>
@@ -772,7 +894,7 @@ public class Texture {
      */
     @NonNull
     public Sampler getTarget() {
-        return Sampler.values()[nGetTarget(getNativeObject())];
+        return sSamplerValues[nGetTarget(getNativeObject())];
     }
 
     /**
@@ -780,13 +902,13 @@ public class Texture {
      */
     @NonNull
     public InternalFormat getFormat() {
-        return InternalFormat.values()[nGetInternalFormat(getNativeObject())];
+        return sInternalFormatValues[nGetInternalFormat(getNativeObject())];
     }
 
     // TODO: add a setImage() version that takes an android Bitmap
 
     /**
-     * <code>setImage</code> is used to modify the whole content of the texure from a CPU-buffer.
+     * <code>setImage</code> is used to modify the whole content of the texture from a CPU-buffer.
      *
      *  <p>This <code>Texture</code> instance must use {@link Sampler#SAMPLER_2D SAMPLER_2D} or
      *  {@link Sampler#SAMPLER_EXTERNAL SAMPLER_EXTERNAL}. If the later is specified
@@ -814,7 +936,7 @@ public class Texture {
     public void setImage(@NonNull Engine engine,
             @IntRange(from = 0) int level,
             @NonNull PixelBufferDescriptor buffer) {
-        setImage(engine, level, 0, 0, getWidth(level), getHeight(level), buffer);
+        setImage(engine, level, 0, 0, 0, getWidth(level), getHeight(level), 1, buffer);
     }
 
 
@@ -849,40 +971,22 @@ public class Texture {
             @IntRange(from = 0) int xoffset, @IntRange(from = 0) int yoffset,
             @IntRange(from = 0) int width, @IntRange(from = 0) int height,
             @NonNull PixelBufferDescriptor buffer) {
-        int result;
-        if (buffer.type == COMPRESSED) {
-            result = nSetImageCompressed(getNativeObject(), engine.getNativeObject(), level,
-                    xoffset, yoffset, width, height,
-                    buffer.storage, buffer.storage.remaining(),
-                    buffer.left, buffer.top, buffer.type.ordinal(), buffer.alignment,
-                    buffer.compressedSizeInBytes, buffer.compressedFormat.ordinal(),
-                    buffer.handler, buffer.callback);
-        } else {
-            result = nSetImage(getNativeObject(), engine.getNativeObject(), level,
-                    xoffset, yoffset, width, height,
-                    buffer.storage, buffer.storage.remaining(),
-                    buffer.left, buffer.top, buffer.type.ordinal(), buffer.alignment,
-                    buffer.stride, buffer.format.ordinal(),
-                    buffer.handler, buffer.callback);
-        }
-        if (result < 0) {
-            throw new BufferOverflowException();
-        }
+        setImage(engine, level, xoffset, yoffset, 0, width, height, 1, buffer);
     }
 
     /**
-     * <code>setImage</code> is used to modify a sub-region of the 3D texture or 2D texture array
-     * from a CPU-buffer.
+     * <code>setImage</code> is used to modify a sub-region of a 3D texture, 2D texture array or
+     * cubemap from a CPU-buffer. Cubemaps are treated like a 2D array of six layers.
      *
-     *  <p>This <code>Texture</code> instance must use {@link Sampler#SAMPLER_2D_ARRAY SAMPLER_2D_ARRAY} or
-     *  {@link Sampler#SAMPLER_3D SAMPLER_3D}.</p>
+     *  <p>This <code>Texture</code> instance must use {@link Sampler#SAMPLER_2D_ARRAY SAMPLER_2D_ARRAY},
+     *  {@link Sampler#SAMPLER_3D SAMPLER_3D} or {@link Sampler#SAMPLER_CUBEMAP SAMPLER_CUBEMAP}.</p>
      *
      * @param engine    {@link Engine} this texture is associated to. Must be the
      *                  instance passed to {@link Builder#build Builder.build()}.
      * @param level     Level to set the image for. Must be less than {@link #getLevels()}.
      * @param xoffset   x-offset in texel of the region to modify
      * @param yoffset   y-offset in texel of the region to modify
-     * @param yoffset   z-offset in texel of the region to modify
+     * @param zoffset   z-offset in texel of the region to modify
      * @param width     width in texel of the region to modify
      * @param height    height in texel of the region to modify
      * @param depth     depth in texel or index of the region to modify
@@ -948,7 +1052,9 @@ public class Texture {
      *
      * @see Builder#sampler
      * @see PixelBufferDescriptor
+     * @deprecated use {@link #setImage(Engine, int, int, int, int, int, int, int, PixelBufferDescriptor)}
      */
+     @Deprecated
     public void setImage(@NonNull Engine engine, @IntRange(from = 0) int level,
             @NonNull PixelBufferDescriptor buffer,
             @NonNull @Size(min = 6) int[] faceOffsetsInBytes) {
@@ -1137,6 +1243,7 @@ public class Texture {
     }
 
     private static native boolean nIsTextureFormatSupported(long nativeEngine, int internalFormat);
+    private static native boolean nIsTextureSwizzleSupported(long nativeEngine);
 
     private static native long nCreateBuilder();
     private static native void nDestroyBuilder(long nativeBuilder);
@@ -1149,6 +1256,7 @@ public class Texture {
     private static native void nBuilderFormat(long nativeBuilder, int format);
     private static native void nBuilderUsage(long nativeBuilder, int flags);
     private static native void nBuilderSwizzle(long nativeBuilder, int r, int g, int b, int a);
+    private static native void nBuilderImportTexture(long nativeBuilder, long id);
     private static native long nBuilderBuild(long nativeBuilder, long nativeEngine);
 
     private static native int nGetWidth(long nativeTexture, int level);
@@ -1158,37 +1266,25 @@ public class Texture {
     private static native int nGetTarget(long nativeTexture);
     private static native int nGetInternalFormat(long nativeTexture);
 
-    private static native int nSetImage(long nativeTexture, long nativeEngine,
-            int level, int xoffset, int yoffset, int width, int height,
-            Buffer storage, int remaining, int left, int bottom, int type, int alignment,
-            int stride, int format,
-            Object handler, Runnable callback);
-
-    private static native int nSetImageCompressed(long nativeTexture, long nativeEngine,
-            int level, int xoffset, int yoffset, int width, int height,
-            Buffer storage, int remaining, int left, int bottom, int type, int alignment,
-            int compressedSizeInBytes, int compressedFormat,
-            Object handler, Runnable callback);
-
     private static native int nSetImage3D(long nativeTexture, long nativeEngine,
             int level, int xoffset, int yoffset, int zoffset, int width, int height, int depth,
-            Buffer storage, int remaining, int left, int bottom, int type, int alignment,
+            Buffer storage, int remaining, int left, int top, int type, int alignment,
             int stride, int format,
             Object handler, Runnable callback);
 
     private static native int nSetImage3DCompressed(long nativeTexture, long nativeEngine,
             int level, int xoffset, int yoffset, int zoffset, int width, int height, int depth,
-            Buffer storage, int remaining, int left, int bottom, int type, int alignment,
+            Buffer storage, int remaining, int left, int top, int type, int alignment,
             int compressedSizeInBytes, int compressedFormat,
             Object handler, Runnable callback);
 
     private static native int nSetImageCubemap(long nativeTexture, long nativeEngine,
-            int level, Buffer storage, int remaining, int left, int bottom, int type,
+            int level, Buffer storage, int remaining, int left, int top, int type,
             int alignment, int stride, int format,
             int[] faceOffsetsInBytes, Object handler, Runnable callback);
 
     private static native int nSetImageCubemapCompressed(long nativeTexture, long nativeEngine,
-            int level, Buffer storage, int remaining, int left, int bottom, int type,
+            int level, Buffer storage, int remaining, int left, int top, int type,
             int alignment, int compressedSizeInBytes, int compressedFormat,
             int[] faceOffsetsInBytes, Object handler, Runnable callback);
 

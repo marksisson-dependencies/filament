@@ -19,6 +19,8 @@
 
 #include <viewer/Settings.h>
 
+#include <utils/compiler.h>
+
 namespace filament {
 namespace viewer {
 
@@ -33,7 +35,7 @@ namespace viewer {
  * [{
  *    "name": "simple",
  *    "base": {
- *      "view.dof.focusDistance": 0.1,
+ *      "view.dof.cocScale": 1.0,
  *      "view.bloom.strength": 0.5
  *   },
  *   "permute": {
@@ -48,7 +50,7 @@ namespace viewer {
  *   }
  * }]
  */
-class AutomationSpec {
+class UTILS_PUBLIC AutomationSpec {
 public:
 
     // Parses a JSON spec, then generates a list of Settings objects.
@@ -81,4 +83,4 @@ private:
 } // namespace viewer
 } // namespace filament
 
-#endif // VIEWER_AUTOMATION_H
+#endif // VIEWER_AUTOMATION_SPEC_H

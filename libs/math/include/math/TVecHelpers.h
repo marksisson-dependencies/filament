@@ -14,21 +14,17 @@
  * limitations under the License.
  */
 
-#ifndef MATH_TVECHELPERS_H_
-#define MATH_TVECHELPERS_H_
+#ifndef TNT_MATH_TVECHELPERS_H
+#define TNT_MATH_TVECHELPERS_H
 
 #include <math/compiler.h>
 
 #include <cmath>            // for std:: namespace
 
-#include <math.h>
 #include <stdint.h>
 #include <sys/types.h>
 
-namespace filament {
-namespace math {
-namespace details {
-// -------------------------------------------------------------------------------------
+namespace filament::math::details {
 
 template<typename U>
 inline constexpr U min(U a, U b) noexcept {
@@ -281,8 +277,6 @@ private:
     template<typename U>
     friend inline constexpr
     bool MATH_PURE operator==(const VECTOR<T>& lv, const VECTOR<U>& rv) {
-        // w/ inlining we end-up with many branches that will pollute the BPU cache
-        MATH_NOUNROLL
         for (size_t i = 0; i < lv.size(); i++) {
             if (lv[i] != rv[i]) {
                 return false;
@@ -463,9 +457,23 @@ private:
         return v;
     }
 
+    friend inline VECTOR<T> MATH_PURE cbrt(VECTOR<T> v) {
+        for (size_t i = 0; i < v.size(); i++) {
+            v[i] = std::cbrt(v[i]);
+        }
+        return v;
+    }
+
     friend inline VECTOR<T> MATH_PURE exp(VECTOR<T> v) {
         for (size_t i = 0; i < v.size(); i++) {
             v[i] = std::exp(v[i]);
+        }
+        return v;
+    }
+
+    friend inline VECTOR<T> MATH_PURE sign(VECTOR<T> v) {
+        for (size_t i = 0; i < v.size(); i++) {
+            v[i] = std::copysign(T(1), v[i]);
         }
         return v;
     }
@@ -610,9 +618,6 @@ private:
     }
 };
 
-// -------------------------------------------------------------------------------------
-}  // namespace details
-}  // namespace math
-}  // namespace filament
+}  // namespace filament::math::details
 
-#endif  // MATH_TVECHELPERS_H_
+#endif  // TNT_MATH_TVECHELPERS_H

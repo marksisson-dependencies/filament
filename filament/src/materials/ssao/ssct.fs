@@ -1,4 +1,23 @@
 /*
+ * Copyright (C) 2021 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#ifndef FILAMENT_MATERIALS_SSCT
+#define FILAMENT_MATERIALS_SSCT
+
+/*
  * Largely based on "Dominant Light Shadowing"
  * "Lighting Technology of The Last of Us Part II" by Hawar Doghramachi, Naughty Dog, LLC
  */
@@ -22,7 +41,6 @@ struct ConeTraceSetup {
 
     // scene infos
     highp mat4 screenFromViewMatrix;
-    highp float depthParams;
     float projectionScale;
     vec4 resolution;
     float maxLevel;
@@ -34,7 +52,7 @@ struct ConeTraceSetup {
     uint sampleCount;
 };
 
-highp float getWFromProjectionMatrix(const mat4 p, const vec3 v) {
+highp float getWFromProjectionMatrix(highp mat4 p, vec3 v) {
     // this essentially returns (p * vec4(v, 1.0)).w, but we make some assumptions
     // this assumes a perspective projection
     return -v.z;
@@ -42,14 +60,14 @@ highp float getWFromProjectionMatrix(const mat4 p, const vec3 v) {
     //return p[2][3] * v.z + p[3][3];
 }
 
-highp float getViewSpaceZFromW(const mat4 p, const float w) {
+highp float getViewSpaceZFromW(highp mat4 p, float w) {
     // this assumes a perspective projection
     return -w;
     // this assumes a perspective or ortho projection
-    return (w - p[3][3]) / p[2][3];
+    //return (w - p[3][3]) / p[2][3];
 }
 
-float coneTraceOcclusion(in ConeTraceSetup setup, const sampler2D depthTexture) {
+float coneTraceOcclusion(in ConeTraceSetup setup, highp sampler2D depthTexture) {
     // skip fragments that are back-facing trace direction
     // (avoid overshadowing of translucent surfaces)
     float NoL = dot(setup.vsNormal, setup.vsConeDirection);
@@ -71,7 +89,7 @@ float coneTraceOcclusion(in ConeTraceSetup setup, const sampler2D depthTexture) 
 
     // cone trace direction in screen-space
     float ssConeLength = length(ssEndPos - ssStartPos);     // do the math in highp
-    vec2 ssConeVector = ssEndPos - ssStartPos;
+    highp vec2 ssConeVector = ssEndPos - ssStartPos;
 
     // direction perpendicular to cone trace direction
     vec2 perpConeDir = normalize(vec2(ssConeVector.y, -ssConeVector.x));
@@ -93,7 +111,7 @@ float coneTraceOcclusion(in ConeTraceSetup setup, const sampler2D depthTexture) 
         highp vec2 ssSamplePos = perpConeDir * ssSliceRadius + ssConeVector * t + ssStartPos;
 
         float level = clamp(floor(log2(ssSliceRadius)) - kSSCTLog2LodRate, 0.0, float(setup.maxLevel));
-        float vsSampleDepthLinear = -sampleDepthLinear(depthTexture, ssSamplePos * setup.resolution.zw, 0.0, setup.depthParams);
+        float vsSampleDepthLinear = -sampleDepthLinear(depthTexture, ssSamplePos * setup.resolution.zw, 0.0);
 
         // calculate depth range of cone slice
         float vsSliceRadius = vsEndRadius * t;
@@ -118,3 +136,19 @@ float coneTraceOcclusion(in ConeTraceSetup setup, const sampler2D depthTexture) 
     }
     return occlusion * setup.intensity;
 }
+
+float ssctDominantLightShadowing(highp vec2 uv, highp vec3 origin, vec3 normal,
+        highp sampler2D depthTexture, highp vec2 fragCoord,
+        vec2 rayCount, ConeTraceSetup cone) {
+
+    float occlusion = 0.0;
+    for (float i = 1.0; i <= rayCount.x; i += 1.0) {
+        cone.jitterOffset.x = interleavedGradientNoise(fragCoord * i) * 2.0 - 1.0;      // direction
+        cone.jitterOffset.y = interleavedGradientNoise(fragCoord * i * vec2(3, 11));    // step
+        occlusion += coneTraceOcclusion(cone, depthTexture);
+    }
+    return occlusion * rayCount.y;
+}
+
+
+#endif // FILAMENT_MATERIALS_SSCT

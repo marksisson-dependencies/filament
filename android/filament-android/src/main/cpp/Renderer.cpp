@@ -51,6 +51,14 @@ Java_com_google_android_filament_Renderer_nRender(JNIEnv *, jclass, jlong native
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_google_android_filament_Renderer_nRenderStandaloneView(JNIEnv *, jclass, jlong nativeRenderer,
+        jlong nativeView) {
+    Renderer *renderer = (Renderer *) nativeRenderer;
+    View *view = (View *) nativeView;
+    renderer->renderStandaloneView(view);
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_google_android_filament_Renderer_nCopyFrame(JNIEnv *, jclass, jlong nativeRenderer,
         jlong nativeDstSwapChain,
         jint dstLeft, jint dstBottom, jint dstWidth, jint dstHeight,
@@ -89,7 +97,8 @@ Java_com_google_android_filament_Renderer_nReadPixels(JNIEnv *env, jclass,
 
     PixelBufferDescriptor desc(buffer, sizeInBytes, (backend::PixelDataFormat) format,
             (backend::PixelDataType) type, (uint8_t) alignment, (uint32_t) left, (uint32_t) top,
-            (uint32_t) stride, &JniBufferCallback::invoke, callback);
+            (uint32_t) stride,
+            callback->getHandler(), &JniBufferCallback::postToJavaAndDestroy, callback);
 
     renderer->readPixels(uint32_t(xoffset), uint32_t(yoffset), uint32_t(width), uint32_t(height),
             std::move(desc));
@@ -124,7 +133,8 @@ Java_com_google_android_filament_Renderer_nReadPixelsEx(JNIEnv *env, jclass,
 
     PixelBufferDescriptor desc(buffer, sizeInBytes, (backend::PixelDataFormat) format,
             (backend::PixelDataType) type, (uint8_t) alignment, (uint32_t) left, (uint32_t) top,
-            (uint32_t) stride, &JniBufferCallback::invoke, callback);
+            (uint32_t) stride,
+            callback->getHandler(), &JniBufferCallback::postToJavaAndDestroy, callback);
 
     renderer->readPixels(renderTarget,
             uint32_t(xoffset), uint32_t(yoffset), uint32_t(width), uint32_t(height),
@@ -146,12 +156,9 @@ Java_com_google_android_filament_Renderer_nResetUserTime(JNIEnv*, jclass, jlong 
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_google_android_filament_Renderer_nSetDisplayInfo(JNIEnv*, jclass, jlong nativeRenderer,
-        jfloat refreshRate, jlong presentationDeadlineNanos, jlong vsyncOffsetNanos) {
+Java_com_google_android_filament_Renderer_nSetDisplayInfo(JNIEnv*, jclass, jlong nativeRenderer, jfloat refreshRate) {
     Renderer *renderer = (Renderer *) nativeRenderer;
-    renderer->setDisplayInfo({ .refreshRate = refreshRate,
-                               .presentationDeadlineNanos = (uint64_t)presentationDeadlineNanos,
-                               .vsyncOffsetNanos = (uint64_t)vsyncOffsetNanos });
+    renderer->setDisplayInfo({ .refreshRate = refreshRate });
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -172,4 +179,11 @@ Java_com_google_android_filament_Renderer_nSetClearOptions(JNIEnv *, jclass ,
     renderer->setClearOptions({ .clearColor = {r, g, b, a},
                                 .clear = (bool) clear,
                                 .discard = (bool) discard});
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_google_android_filament_Renderer_nSetPresentationTime(JNIEnv *, jclass ,
+    jlong nativeRenderer, jlong monotonicClockNanos) {
+    Renderer *renderer = (Renderer *) nativeRenderer;
+    renderer->setPresentationTime(monotonicClockNanos);
 }

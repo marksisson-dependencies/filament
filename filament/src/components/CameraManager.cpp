@@ -21,6 +21,7 @@
 
 #include <utils/Entity.h>
 #include <utils/Log.h>
+#include <utils/debug.h>
 
 #include <math/mat4.h>
 
@@ -44,7 +45,7 @@ void FCameraManager::terminate() noexcept {
                << " leaked Camera components" << io::endl;
 #endif
         while (!manager.empty()) {
-            Instance ci = manager.end() - 1;
+            Instance const ci = manager.end() - 1;
             destroy(manager.getEntity(ci));
         }
     }
@@ -64,7 +65,7 @@ FCamera* FCameraManager::create(Entity entity) {
     if (UTILS_UNLIKELY(manager.hasComponent(entity))) {
         destroy(entity);
     }
-    Instance i = manager.addComponent(entity);
+    Instance const i = manager.addComponent(entity);
 
     FCamera* camera = engine.getHeapAllocator().make<FCamera>(engine, entity);
     manager.elementAt<CAMERA>(i) = camera;
@@ -79,10 +80,10 @@ FCamera* FCameraManager::create(Entity entity) {
 
 void FCameraManager::destroy(Entity e) noexcept {
     auto& manager = mManager;
-    Instance i = manager.getInstance(e);
+    Instance const i = manager.getInstance(e);
     if (i) {
         FCamera* camera = manager.elementAt<CAMERA>(i);
-        assert(camera);
+        assert_invariant(camera);
         camera->terminate(mEngine);
         mEngine.getHeapAllocator().destroy(camera);
         manager.removeComponent(e);

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.19)
 project(tsl)
 
 set(TARGET tsl)
@@ -22,6 +22,7 @@ include_directories(${OUR_DIR}/tsl)
 add_library(${TARGET} INTERFACE)
 target_sources(${TARGET} INTERFACE ${PUBLIC_HDRS})
 target_include_directories(${TARGET} INTERFACE ${OUR_DIR})
+set_target_properties(${TARGET} PROPERTIES FOLDER ThirdParty)
 
 # ==================================================================================================
 # Installation

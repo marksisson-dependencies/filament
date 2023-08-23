@@ -17,19 +17,20 @@
 #ifndef TNT_FILAMENT_DETAILS_MATERIAL_H
 #define TNT_FILAMENT_DETAILS_MATERIAL_H
 
-#include "upcast.h"
+#include "downcast.h"
 
 #include "details/MaterialInstance.h"
 
 #include <filament/Material.h>
 
-#include <private/filament/SamplerBindingMap.h>
+#include <private/filament/SamplerBindingsInfo.h>
 #include <private/filament/SamplerInterfaceBlock.h>
+#include <private/filament/SubpassInfo.h>
 #include <private/filament/Variant.h>
-
-#include <filaflat/ShaderBuilder.h>
+#include <private/filament/ConstantInfo.h>
 
 #include <utils/compiler.h>
+#include <utils/Mutex.h>
 
 #include <atomic>
 
@@ -53,7 +54,7 @@ public:
     void terminate(FEngine& engine);
 
     // return the uniform interface block for this material
-    const UniformInterfaceBlock& getUniformInterfaceBlock() const noexcept {
+    const BufferInterfaceBlock& getUniformInterfaceBlock() const noexcept {
         return mUniformInterfaceBlock;
     }
 
@@ -62,6 +63,11 @@ public:
         return mSamplerInterfaceBlock;
     }
 
+    void compile(CompilerPriorityQueue priority,
+            UserVariantFilterMask variantFilter,
+            backend::CallbackHandler* handler,
+            utils::Invocable<void(Material*)>&& callback) noexcept;
+
     // Create an instance of this material
     FMaterialInstance* createInstance(const char* name) const noexcept;
 
@@ -69,30 +75,45 @@ public:
 
     bool isSampler(const char* name) const noexcept;
 
-    UniformInterfaceBlock::UniformInfo const* reflect(utils::StaticString const& name) const noexcept;
+    BufferInterfaceBlock::FieldInfo const* reflect(std::string_view name) const noexcept;
 
     FMaterialInstance const* getDefaultInstance() const noexcept { return &mDefaultInstance; }
     FMaterialInstance* getDefaultInstance() noexcept { return &mDefaultInstance; }
 
     FEngine& getEngine() const noexcept  { return mEngine; }
 
-    backend::Handle<backend::HwProgram> getProgram(uint8_t variantKey) const noexcept {
-#if FILAMENT_ENABLE_MATDBG
-        if (UTILS_UNLIKELY(mPendingEdits.load())) {
-            const_cast<FMaterial*>(this)->applyPendingEdits();
-        }
-#endif
-        backend::Handle<backend::HwProgram> const entry = mCachedPrograms[variantKey];
-        return UTILS_LIKELY(entry) ? entry : getProgramSlow(variantKey);
+    bool isCached(Variant variant) const noexcept {
+        return bool(mCachedPrograms[variant.key]);
     }
-    backend::Program getProgramBuilderWithVariants(uint8_t variantKey, uint8_t vertexVariantKey,
-            uint8_t fragmentVariantKey) const noexcept;
-    backend::Handle<backend::HwProgram> createAndCacheProgram(backend::Program&& p,
-            uint8_t variantKey) const noexcept;
+
+    // prepareProgram creates the program for the material's given variant at the backend level.
+    // Must be called outside of backend render pass.
+    // Must be called before getProgram() below.
+    void prepareProgram(Variant variant,
+            backend::CompilerPriorityQueue priorityQueue = CompilerPriorityQueue::HIGH) const noexcept {
+        // prepareProgram() is called for each RenderPrimitive in the scene, so it must be efficient.
+        if (UTILS_UNLIKELY(!isCached(variant))) {
+            prepareProgramSlow(variant, priorityQueue);
+        }
+    }
+
+    // getProgram returns the backend program for the material's given variant.
+    // Must be called after prepareProgram().
+    [[nodiscard]] backend::Handle<backend::HwProgram> getProgram(Variant variant) const noexcept {
+#if FILAMENT_ENABLE_MATDBG
+        assert_invariant((size_t)variant.key < VARIANT_COUNT);
+        std::unique_lock<utils::Mutex> lock(mActiveProgramsLock);
+        mActivePrograms.set(variant.key);
+        lock.unlock();
+#endif
+        assert_invariant(mCachedPrograms[variant.key]);
+        return mCachedPrograms[variant.key];
+    }
 
     bool isVariantLit() const noexcept { return mIsVariantLit; }
 
     const utils::CString& getName() const noexcept { return mName; }
+    backend::FeatureLevel getFeatureLevel() const noexcept { return mFeatureLevel; }
     backend::RasterState getRasterState() const noexcept  { return mRasterState; }
     uint32_t getId() const noexcept { return mMaterialId; }
 
@@ -111,11 +132,13 @@ public:
     }
     bool isDoubleSided() const noexcept { return mDoubleSided; }
     bool hasDoubleSidedCapability() const noexcept { return mDoubleSidedCapability; }
+    bool isAlphaToCoverageEnabled() const noexcept { return mRasterState.alphaToCoverage; }
     float getMaskThreshold() const noexcept { return mMaskThreshold; }
     bool hasShadowMultiplier() const noexcept { return mHasShadowMultiplier; }
     AttributeBitset getRequiredAttributes() const noexcept { return mRequiredAttributes; }
     RefractionMode getRefractionMode() const noexcept { return mRefractionMode; }
     RefractionType getRefractionType() const noexcept { return mRefractionType; }
+    ReflectionMode getReflectionMode() const noexcept { return mReflectionMode; }
 
     bool hasSpecularAntiAliasing() const noexcept { return mSpecularAntiAliasing; }
     float getSpecularAntiAliasingVariance() const noexcept { return mSpecularAntiAliasingVariance; }
@@ -126,16 +149,18 @@ public:
     }
 
     size_t getParameterCount() const noexcept {
-        return mUniformInterfaceBlock.getUniformInfoList().size() +
-                mSamplerInterfaceBlock.getSamplerInfoList().size();
+        return mUniformInterfaceBlock.getFieldInfoList().size() +
+               mSamplerInterfaceBlock.getSamplerInfoList().size() +
+               (mSubpassInfo.isValid ? 1 : 0);
     }
     size_t getParameters(ParameterInfo* parameters, size_t count) const noexcept;
 
     uint32_t generateMaterialInstanceId() const noexcept { return mMaterialInstanceId++; }
 
-    void applyPendingEdits() noexcept;
-
     void destroyPrograms(FEngine& engine);
+
+#if FILAMENT_ENABLE_MATDBG
+    void applyPendingEdits() noexcept;
 
     /**
      * Callback handlers for the debug server, potentially called from any thread. The userdata
@@ -148,17 +173,36 @@ public:
     static void onEditCallback(void* userdata, const utils::CString& name, const void* packageData,
             size_t packageSize);
 
-    /** Queries the program cache to check which variants are resident. */
-    static void onQueryCallback(void* userdata, uint64_t* pVariants);
+    /**
+     * Returns a list of "active" variants.
+     *
+     * This works by checking which variants have been accessed since the previous call, then
+     * clearing out the internal list.  Note that the active vs inactive status is merely a visual
+     * indicator in the matdbg UI, and that it gets updated about every second.
+     */
+    static void onQueryCallback(void* userdata, VariantList* pActiveVariants);
+
+    void checkProgramEdits() noexcept {
+        if (UTILS_UNLIKELY(mPendingEdits.load())) {
+            applyPendingEdits();
+        }
+    }
 
     /** @}*/
-
-    static MaterialParser* createParser(backend::Backend backend, const void* data, size_t size);
+#endif
 
 private:
-    backend::Handle<backend::HwProgram> getProgramSlow(uint8_t variantKey) const noexcept;
-    backend::Handle<backend::HwProgram> getSurfaceProgramSlow(uint8_t variantKey) const noexcept;
-    backend::Handle<backend::HwProgram> getPostProcessProgramSlow(uint8_t variantKey) const noexcept;
+    bool hasVariant(Variant variant) const noexcept;
+    void prepareProgramSlow(Variant variant,
+            CompilerPriorityQueue priorityQueue) const noexcept;
+    void getSurfaceProgramSlow(Variant variant,
+            CompilerPriorityQueue priorityQueue) const noexcept;
+    void getPostProcessProgramSlow(Variant variant,
+            CompilerPriorityQueue priorityQueue) const noexcept;
+    backend::Program getProgramWithVariants(Variant variant,
+            Variant vertexVariant, Variant fragmentVariant) const noexcept;
+
+    void createAndCacheProgram(backend::Program&& p, Variant variant) const noexcept;
 
     // try to order by frequency of use
     mutable std::array<backend::Handle<backend::HwProgram>, VARIANT_COUNT> mCachedPrograms;
@@ -167,6 +211,7 @@ private:
     BlendingMode mRenderBlendingMode = BlendingMode::OPAQUE;
     TransparencyMode mTransparencyMode = TransparencyMode::DEFAULT;
     bool mIsVariantLit = false;
+    backend::FeatureLevel mFeatureLevel = backend::FeatureLevel::FEATURE_LEVEL_1;
     Shading mShading = Shading::UNLIT;
 
     BlendingMode mBlendingMode = BlendingMode::OPAQUE;
@@ -177,6 +222,7 @@ private:
     AttributeBitset mRequiredAttributes;
     RefractionMode mRefractionMode = RefractionMode::NONE;
     RefractionType mRefractionType = RefractionType::SOLID;
+    ReflectionMode mReflectionMode = ReflectionMode::DEFAULT;
     uint64_t mMaterialProperties = 0;
 
     float mMaskThreshold = 0.4f;
@@ -192,19 +238,41 @@ private:
 
     FMaterialInstance mDefaultInstance;
     SamplerInterfaceBlock mSamplerInterfaceBlock;
-    UniformInterfaceBlock mUniformInterfaceBlock;
-    SamplerBindingMap mSamplerBindings;
+    BufferInterfaceBlock mUniformInterfaceBlock;
+    SubpassInfo mSubpassInfo;
+    utils::FixedCapacityVector<std::pair<utils::CString, uint8_t>> mUniformBlockBindings;
+    utils::FixedCapacityVector<Variant> mDepthVariants; // only populated with default material
+
+    using BindingUniformInfoContainer = utils::FixedCapacityVector<
+            std::pair<filament::UniformBindingPoints, backend::Program::UniformInfo>>;
+
+    BindingUniformInfoContainer mBindingUniformInfo;
+
+    using AttributeInfoContainer = utils::FixedCapacityVector<std::pair<utils::CString, uint8_t>>;
+
+    AttributeInfoContainer mAttributeInfo;
+
+    SamplerGroupBindingInfoList mSamplerGroupBindingInfoList;
+    SamplerBindingToNameMap mSamplerBindingToNameMap;
+    utils::FixedCapacityVector<backend::Program::SpecializationConstant> mSpecializationConstants;
+
+#if FILAMENT_ENABLE_MATDBG
+    matdbg::MaterialKey mDebuggerId;
+    mutable utils::Mutex mActiveProgramsLock;
+    mutable VariantList mActivePrograms;
+    std::atomic<MaterialParser*> mPendingEdits = {};
+#endif
 
     utils::CString mName;
     FEngine& mEngine;
     const uint32_t mMaterialId;
+    uint64_t mCacheId = 0;
     mutable uint32_t mMaterialInstanceId = 0;
     MaterialParser* mMaterialParser = nullptr;
-    std::atomic<MaterialParser*> mPendingEdits = {};
 };
 
 
-FILAMENT_UPCAST(Material)
+FILAMENT_DOWNCAST(Material)
 
 } // namespace filament
 

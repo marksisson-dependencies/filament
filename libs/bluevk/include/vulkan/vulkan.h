@@ -2,7 +2,7 @@
 #define VULKAN_H_ 1
 
 /*
-** Copyright (c) 2015-2020 The Khronos Group Inc.
+** Copyright 2015-2022 The Khronos Group Inc.
 **
 ** SPDX-License-Identifier: Apache-2.0
 */
@@ -38,14 +38,12 @@
 
 
 #ifdef VK_USE_PLATFORM_WAYLAND_KHR
-#include <wayland-client.h>
 #include "vulkan_wayland.h"
 #endif
 
 
 #ifdef VK_USE_PLATFORM_WIN32_KHR
 #include <windows.h>
-#include <utils/unwindows.h>
 #include "vulkan_win32.h"
 #endif
 
@@ -80,6 +78,11 @@
 #include "vulkan_ggp.h"
 #endif
 
+
+#ifdef VK_USE_PLATFORM_SCREEN_QNX
+#include <screen/screen.h>
+#include "vulkan_screen.h"
+#endif
 
 #ifdef VK_ENABLE_BETA_EXTENSIONS
 #include "vulkan_beta.h"

@@ -14,33 +14,33 @@
  * limitations under the License.
  */
 
-#ifndef TNT_FILAMENT_DRIVER_VULKANBUFFER_H
-#define TNT_FILAMENT_DRIVER_VULKANBUFFER_H
+#ifndef TNT_FILAMENT_BACKEND_VULKANBUFFER_H
+#define TNT_FILAMENT_BACKEND_VULKANBUFFER_H
 
 #include "VulkanContext.h"
 #include "VulkanStagePool.h"
 
-namespace filament {
-namespace backend {
+namespace filament::backend {
 
 // Encapsulates a Vulkan buffer, its attached DeviceMemory and a staging area.
 class VulkanBuffer {
 public:
-    VulkanBuffer(VulkanContext& context, VulkanStagePool& stagePool, VulkanDisposer& disposer,
-            VulkanDisposer::Key mDisposerKey, VkBufferUsageFlags usage, uint32_t numBytes);
+    VulkanBuffer(VmaAllocator allocator, VulkanCommands* commands, VulkanStagePool& stagePool,
+            VkBufferUsageFlags usage, uint32_t numBytes);
     ~VulkanBuffer();
-    void loadFromCpu(const void* cpuData, uint32_t byteOffset, uint32_t numBytes);
+    void terminate();
+    void loadFromCpu(const void* cpuData, uint32_t byteOffset, uint32_t numBytes) const;
     VkBuffer getGpuBuffer() const { return mGpuBuffer; }
 private:
-    VulkanContext& mContext;
+    VmaAllocator mAllocator;
+    VulkanCommands* mCommands;
     VulkanStagePool& mStagePool;
-    VulkanDisposer& mDisposer;
-    VulkanDisposer::Key mDisposerKey;
+
     VmaAllocation mGpuMemory = VK_NULL_HANDLE;
     VkBuffer mGpuBuffer = VK_NULL_HANDLE;
+    VkBufferUsageFlags mUsage = {};
 };
 
-} // namespace filament
-} // namespace backend
+} // namespace filament::backend
 
-#endif // TNT_FILAMENT_DRIVER_VULKANBUFFER_H
+#endif // TNT_FILAMENT_BACKEND_VULKANBUFFER_H

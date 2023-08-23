@@ -15,37 +15,52 @@
  */
 
 // Note: The overhead of SYSTRACE_TAG_JOBSYSTEM is not negligible especially with parallel_for().
+#ifndef SYSTRACE_TAG
 //#define SYSTRACE_TAG SYSTRACE_TAG_JOBSYSTEM
 #define SYSTRACE_TAG SYSTRACE_TAG_NEVER
+#endif
 
 // when SYSTRACE_TAG_JOBSYSTEM is used, enables even heavier systraces
 #define HEAVY_SYSTRACE  0
 
+// enable for catching hangs waiting on a job to finish
+static constexpr bool DEBUG_FINISH_HANGS = false;
+
 #include <utils/JobSystem.h>
 
-#include <cmath>
-#include <random>
-
 #include <utils/compiler.h>
+#include <utils/Log.h>
 #include <utils/memalign.h>
 #include <utils/Panic.h>
 #include <utils/Systrace.h>
 
-#if !defined(WIN32)
+#include <random>
+
+#include <math.h>
+
+#if defined(WIN32)
+#    define NOMINMAX
+#    include <windows.h>
+#    include <string>
+# else
 #    include <pthread.h>
 #endif
 
-#ifdef ANDROID
+#ifdef __ANDROID__
+    // see https://developer.android.com/topic/performance/threads#priority
 #    include <sys/time.h>
 #    include <sys/resource.h>
 #    ifndef ANDROID_PRIORITY_URGENT_DISPLAY
-#        define ANDROID_PRIORITY_URGENT_DISPLAY -8  // see include/system/thread_defs.h
+#        define ANDROID_PRIORITY_URGENT_DISPLAY (-8)
 #    endif
 #    ifndef ANDROID_PRIORITY_DISPLAY
-#        define ANDROID_PRIORITY_DISPLAY -4  // see include/system/thread_defs.h
+#        define ANDROID_PRIORITY_DISPLAY (-4)
 #    endif
 #    ifndef ANDROID_PRIORITY_NORMAL
-#        define ANDROID_PRIORITY_NORMAL 0 // see include/system/thread_defs.h
+#        define ANDROID_PRIORITY_NORMAL (0)
+#    endif
+#    ifndef ANDROID_PRIORITY_BACKGROUND
+#        define ANDROID_PRIORITY_BACKGROUND (10)
 #    endif
 #elif defined(__linux__)
 // There is no glibc wrapper for gettid on linux so we need to syscall it.
@@ -71,15 +86,25 @@ void JobSystem::setThreadName(const char* name) noexcept {
     pthread_setname_np(pthread_self(), name);
 #elif defined(__APPLE__)
     pthread_setname_np(name);
-#else
-// TODO: implement setting thread name on WIN32
+#elif defined(WIN32)
+    std::string_view u8name(name);
+    size_t size = MultiByteToWideChar(CP_UTF8, 0, u8name.data(), u8name.size(), nullptr, 0);
+
+    std::wstring u16name;
+    u16name.resize(size);
+    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, u8name.data(), u8name.size(), u16name.data(), u16name.size());
+    
+    SetThreadDescription(GetCurrentThread(), u16name.data());
 #endif
 }
 
 void JobSystem::setThreadPriority(Priority priority) noexcept {
-#ifdef ANDROID
+#ifdef __ANDROID__
     int androidPriority = 0;
     switch (priority) {
+        case Priority::BACKGROUND:
+            androidPriority = ANDROID_PRIORITY_BACKGROUND;
+            break;
         case Priority::NORMAL:
             androidPriority = ANDROID_PRIORITY_NORMAL;
             break;
@@ -90,7 +115,14 @@ void JobSystem::setThreadPriority(Priority priority) noexcept {
             androidPriority = ANDROID_PRIORITY_URGENT_DISPLAY;
             break;
     }
-    setpriority(PRIO_PROCESS, 0, androidPriority);
+    errno = 0;
+    UTILS_UNUSED_IN_RELEASE int error;
+    error = setpriority(PRIO_PROCESS, 0, androidPriority);
+#ifndef NDEBUG
+    if (UTILS_UNLIKELY(error)) {
+        slog.w << "setpriority failed: " << strerror(errno) << io::endl;
+    }
+#endif
 #endif
 }
 
@@ -119,20 +151,20 @@ JobSystem::JobSystem(const size_t userThreadCount, const size_t adoptableThreads
             // since we assumed HT, always round-up to an even number of cores (to play it safe)
             hwThreads = (hwThreads + 1) / 2;
         }
-        // make sure we have at least one thread in the thread pool
-        hwThreads = std::max(2, hwThreads);
         // one of the thread will be the user thread
         threadPoolCount = hwThreads - 1;
     }
+    // make sure we have at least one thread in the thread pool
+    threadPoolCount = std::max(1, threadPoolCount);
+    // and also limit the pool to 32 threads
     threadPoolCount = std::min(UTILS_HAS_THREADING ? 32 : 0, threadPoolCount);
 
     mThreadStates = aligned_vector<ThreadState>(threadPoolCount + adoptableThreadsCount);
     mThreadCount = uint16_t(threadPoolCount);
     mParallelSplitCount = (uint8_t)std::ceil((std::log2f(threadPoolCount + adoptableThreadsCount)));
 
-    // this is a pity these are not compile-time checks (C++17 supports it apparently)
-    assert(mExitRequested.is_lock_free());
-    assert(Job().runningJobCount.is_lock_free());
+    static_assert(std::atomic<bool>::is_always_lock_free);
+    static_assert(std::atomic<uint16_t>::is_always_lock_free);
 
     std::random_device rd;
     const size_t hardwareThreadCount = mThreadCount;
@@ -190,9 +222,8 @@ void JobSystem::decRef(Job const* job) noexcept {
 
 void JobSystem::requestExit() noexcept {
     mExitRequested.store(true);
-    { std::lock_guard<Mutex> lock(mWaiterLock); }
+    std::lock_guard<Mutex> lock(mWaiterLock);
     mWaiterCondition.notify_all();
-
 }
 
 inline bool JobSystem::exitRequested() const noexcept {
@@ -205,21 +236,60 @@ inline bool JobSystem::hasActiveJobs() const noexcept {
 }
 
 inline bool JobSystem::hasJobCompleted(JobSystem::Job const* job) noexcept {
-    return job->runningJobCount.load(std::memory_order_relaxed) <= 0;
+    return job->runningJobCount.load(std::memory_order_acquire) <= 0;
 }
 
-void JobSystem::wait(std::unique_lock<Mutex>& lock) noexcept {
-    ++mWaiterCount;
-    mWaiterCondition.wait(lock);
-    --mWaiterCount;
+void JobSystem::wait(std::unique_lock<Mutex>& lock, Job* job) noexcept {
+    if constexpr (!DEBUG_FINISH_HANGS) {
+        mWaiterCondition.wait(lock);
+    } else {
+        do {
+            // we use a pretty long timeout (4s) so we're very confident that the system is hung
+            // and nothing else is happening.
+            std::cv_status status = mWaiterCondition.wait_for(lock,
+                    std::chrono::milliseconds(4000));
+            if (status == std::cv_status::no_timeout) {
+                break;
+            }
+
+            // hang debugging...
+
+            // we check of we had active jobs or if the job we're waiting on had completed already.
+            // there is the possibility of a race condition, but our long timeout gives us some
+            // confidence that we're in an incorrect state.
+
+            auto id = getState().id;
+            auto activeJobs = mActiveJobs.load();
+
+            if (job) {
+                auto runningJobCount = job->runningJobCount.load();
+                ASSERT_POSTCONDITION(runningJobCount > 0,
+                        "JobSystem(%p, %d): waiting while job %p has completed and %d jobs are active!",
+                        this, id, job, activeJobs);
+            }
+
+            ASSERT_POSTCONDITION(activeJobs <= 0,
+                    "JobSystem(%p, %d): waiting while %d jobs are active!",
+                    this, id, activeJobs);
+
+        } while (true);
+    }
 }
 
-void JobSystem::wake() noexcept {
-    Mutex& lock = mWaiterLock;
-    lock.lock();
-    const uint32_t waiterCount = mWaiterCount;
-    lock.unlock();
-    mWaiterCondition.notify_n(waiterCount);
+void JobSystem::wakeAll() noexcept {
+    HEAVY_SYSTRACE_CALL();
+    std::lock_guard<Mutex> lock(mWaiterLock);
+    // this empty critical section is needed -- it guarantees that notify_all() happens
+    // after the condition's variables are set.
+    mWaiterCondition.notify_all();
+}
+
+void JobSystem::wakeOne() noexcept {
+    HEAVY_SYSTRACE_CALL();
+    std::lock_guard<Mutex> lock(mWaiterLock);
+    // this empty critical section is needed -- it guarantees that notify_one() happens
+    // after the condition's variables are set.
+    mWaiterCondition.notify_one();
 }
 
 inline JobSystem::ThreadState& JobSystem::getState() noexcept {
@@ -231,6 +301,65 @@ inline JobSystem::ThreadState& JobSystem::getState() noexcept {
 
 JobSystem::Job* JobSystem::allocateJob() noexcept {
     return mJobPool.make<Job>();
+}
+
+void JobSystem::put(WorkQueue& workQueue, Job* job) noexcept {
+    assert(job);
+    size_t index = job - mJobStorageBase;
+    assert(index >= 0 && index < MAX_JOB_COUNT);
+
+    // put the job into the queue first
+    workQueue.push(uint16_t(index + 1));
+    // then increase our active job count
+    uint32_t oldActiveJobs = mActiveJobs.fetch_add(1, std::memory_order_relaxed);
+    // but it's possible that the job has already been picked-up, so oldActiveJobs could be
+    // negative for instance. We signal only if that's not the case.
+    if (oldActiveJobs >= 0) {
+        wakeOne(); // wake-up a thread if needed...
+    }
+}
+
+JobSystem::Job* JobSystem::pop(WorkQueue& workQueue) noexcept {
+    // decrement mActiveJobs first, this is to ensure that if there is only a single job left
+    // (and we're about to pick it up), other threads don't loop trying to do the same.
+    mActiveJobs.fetch_sub(1, std::memory_order_relaxed);
+
+    size_t index = workQueue.pop();
+    assert(index <= MAX_JOB_COUNT);
+    Job* job = !index ? nullptr : &mJobStorageBase[index - 1];
+
+    // if our guess was wrong, i.e. we couldn't pick-up a job (b/c our queue was empty), we
+    // need to correct mActiveJobs.
+    if (!job) {
+        if (mActiveJobs.fetch_add(1, std::memory_order_relaxed) >= 0) {
+            // and if there are some active jobs, then we need to wake someone up. We know it
+            // can't be us, because we failed taking a job and we know another thread can't
+            // have added one in our queue.
+            wakeOne();
+        }
+    }
+    return job;
+}
+
+JobSystem::Job* JobSystem::steal(WorkQueue& workQueue) noexcept {
+    // decrement mActiveJobs first, this is to ensure that if there is only a single job left
+    // (and we're about to pick it up), other threads don't loop trying to do the same.
+    mActiveJobs.fetch_sub(1, std::memory_order_relaxed);
+
+    size_t index = workQueue.steal();
+    assert(index <= MAX_JOB_COUNT);
+    Job* job = !index ? nullptr : &mJobStorageBase[index - 1];
+
+    // if we failed taking a job, we need to correct mActiveJobs
+    if (!job) {
+        if (mActiveJobs.fetch_add(1, std::memory_order_relaxed) >= 0) {
+            // and if there are some active jobs, then we need to wake someone up. We know it
+            // can't be us, because we failed taking a job and we know another thread can't
+            // have added one in our queue.
+            wakeOne();
+        }
+    }
+    return job;
 }
 
 inline JobSystem::ThreadState* JobSystem::getStateToStealFrom(JobSystem::ThreadState& state) noexcept {
@@ -279,10 +408,7 @@ bool JobSystem::execute(JobSystem::ThreadState& state) noexcept {
     }
 
     if (job) {
-        UTILS_UNUSED_IN_RELEASE
-        uint32_t activeJobs = mActiveJobs.fetch_sub(1, std::memory_order_relaxed);
-        assert(activeJobs); // whoops, we were already at 0
-        HEAVY_SYSTRACE_VALUE32("JobSystem::activeJobs", activeJobs - 1);
+        assert(job->runningJobCount.load(std::memory_order_relaxed) >= 1);
 
         if (UTILS_LIKELY(job->function)) {
             HEAVY_SYSTRACE_NAME("job->function");
@@ -346,7 +472,7 @@ void JobSystem::finish(Job* job) noexcept {
 
     // wake-up all threads that could potentially be waiting on this job finishing
     if (notify) {
-        wake();
+        wakeAll();
     }
 }
 
@@ -394,37 +520,23 @@ void JobSystem::release(JobSystem::Job*& job) noexcept {
 }
 
 void JobSystem::signal() noexcept {
-    wake();
+    wakeAll();
 }
 
-void JobSystem::run(JobSystem::Job*& job, uint32_t flags) noexcept {
+void JobSystem::run(Job*& job) noexcept {
     HEAVY_SYSTRACE_CALL();
 
     ThreadState& state(getState());
 
-    // increase the active job count before we add the job to the queue, because otherwise
-    // the job could run and finish before the counter is incremented, which would trigger
-    // an assert() in execute(). Either way, it's not "wrong", but the assert() is useful.
-    uint32_t activeJobs = mActiveJobs.fetch_add(1, std::memory_order_relaxed);
-
     put(state.workQueue, job);
-
-    HEAVY_SYSTRACE_VALUE32("JobSystem::activeJobs", activeJobs + 1);
-
-    // wake-up a thread if needed...
-    if (!(flags & DONT_SIGNAL)) {
-        // wake-up multiple queues because there could be multiple jobs queued
-        // especially if DONT_SIGNAL was used
-        wake();
-    }
 
     // after run() returns, the job is virtually invalid (it'll die on its own)
     job = nullptr;
 }
 
-JobSystem::Job* JobSystem::runAndRetain(JobSystem::Job* job, uint32_t flags) noexcept {
+JobSystem::Job* JobSystem::runAndRetain(Job* job) noexcept {
     JobSystem::Job* retained = retain(job);
-    run(job, flags);
+    run(job);
     return retained;
 }
 
@@ -453,7 +565,7 @@ void JobSystem::waitAndRelease(Job*& job) noexcept {
 
             std::unique_lock<Mutex> lock(mWaiterLock);
             if (!hasJobCompleted(job) && !hasActiveJobs() && !exitRequested()) {
-                wait(lock);
+                wait(lock, job);
             }
         }
     } while (!hasJobCompleted(job) && !exitRequested());
@@ -494,7 +606,7 @@ void JobSystem::adopt() {
             "Too many calls to adopt(). No more adoptable threads!");
 
     // all threads adopted by the JobSystem need to run at the same priority
-    JobSystem::setThreadPriority(JobSystem::Priority::DISPLAY);
+    JobSystem::setThreadPriority(Priority::DISPLAY);
 
     // This thread's queue will be selectable immediately (i.e.: before we set its TLS)
     // however, it's not a problem since mThreadState is pre-initialized and valid

@@ -1,56 +1,72 @@
 // This plugin accepts the following parameters:
 //
-// filament_tools_dir
+// com.google.android.filament.tools-dir
 //     Path to the Filament distribution/install directory for desktop.
 //     This directory must contain bin/matc.
 //
-// filament_exclude_vulkan
+// com.google.android.filament.exclude-vulkan
 //     When set, support for Vulkan will be excluded.
 //
 // Example:
-//     ./gradlew -Pfilament_tools_dir=../../dist-release assembleDebug
+//     ./gradlew -Pcom.google.android.filament.tools-dir=../../dist-release assembleDebug
 
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.gradle.api.provider.ProviderFactory
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.FileSystemOperations
 import org.gradle.api.file.FileType
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.logging.LogLevel
 import org.gradle.api.logging.Logger
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.incremental.InputFileDetails
+import org.gradle.api.model.ObjectFactory
 import org.gradle.internal.os.OperatingSystem
+import org.gradle.process.ExecOperations
 import org.gradle.work.ChangeType
 import org.gradle.work.Incremental
 import org.gradle.work.InputChanges
 
 import java.nio.file.Paths
 
-class TaskWithBinary extends DefaultTask {
+import javax.inject.Inject
+
+abstract class TaskWithBinary extends DefaultTask {
     private final String binaryName
-    private File binaryPath = null
+    private Property<String> binaryPath = null
 
     TaskWithBinary(String name) {
         binaryName = name
     }
 
-    String getBinaryName() {
-        return binaryName
-    }
+    @Inject abstract ObjectFactory getObjects()
+    @Inject abstract ProviderFactory getProviders()
 
-    File getBinary() {
+    @Input
+    Property<String> getBinary() {
         if (binaryPath == null) {
             def tool = ["/bin/${binaryName}.exe", "/bin/${binaryName}"]
             def fullPath = tool.collect { path ->
-                Paths.get(project.ext.filamentToolsPath.absolutePath, path).toFile()
+                def filamentToolsPath = providers
+                        .gradleProperty("com.google.android.filament.tools-dir")
+                        .forUseAtConfigurationTime().get()
+                def directory = objects.fileProperty()
+                        .fileValue(new File(filamentToolsPath)).getAsFile().get()
+                Paths.get(directory.absolutePath, path).toFile()
             }
 
-            binaryPath = OperatingSystem.current().isWindows() ? fullPath[0] : fullPath[1]
+            binaryPath = objects.property(String.class)
+            binaryPath.set(
+                    (OperatingSystem.current().isWindows() ? fullPath[0] : fullPath[1]).toString())
         }
         return binaryPath
     }
@@ -65,14 +81,6 @@ class LogOutputStream extends ByteArrayOutputStream {
         this.level = level
     }
 
-    Logger getLogger() {
-        return logger
-    }
-
-    LogLevel getLevel() {
-        return level
-    }
-
     @Override
     void flush() {
         logger.log(level, toString())
@@ -85,10 +93,15 @@ class LogOutputStream extends ByteArrayOutputStream {
 abstract class MaterialCompiler extends TaskWithBinary {
     @Incremental
     @InputDirectory
-    final DirectoryProperty inputDir = project.objects.directoryProperty()
+    abstract DirectoryProperty getInputDir()
 
     @OutputDirectory
-    final DirectoryProperty outputDir = project.objects.directoryProperty()
+    abstract DirectoryProperty getOutputDir()
+
+    @Inject abstract FileSystemOperations getFs()
+    @Inject abstract ExecOperations getExec()
+    @Inject abstract ObjectFactory getObjects()
+    @Inject abstract ProviderFactory getProviders()
 
     MaterialCompiler() {
         super("matc")
@@ -97,7 +110,9 @@ abstract class MaterialCompiler extends TaskWithBinary {
     @TaskAction
     void execute(InputChanges inputs) {
         if (!inputs.incremental) {
-            project.delete(project.fileTree(outputDir.asFile.get()).matching { include '*.filamat' })
+            fs.delete({
+                delete(objects.fileTree().from(outputDir).matching { include '*.filamat' })
+            })
         }
 
         inputs.getFileChanges(inputDir).each { InputFileDetails change ->
@@ -115,21 +130,32 @@ abstract class MaterialCompiler extends TaskWithBinary {
                 out.write(header)
                 out.flush()
 
-                if (!getBinary().exists()) {
-                    throw new GradleException("Could not find ${getBinary()}." +
+                if (!new File(binary.get()).exists()) {
+                    throw new GradleException("Could not find ${binary.get()}." +
                             " Ensure Filament has been built/installed before building this app.")
                 }
 
                 def matcArgs = []
-                if (!project.hasProperty("filament_exclude_vulkan")) {
+                def exclude_vulkan = providers
+                        .gradleProperty("com.google.android.filament.exclude-vulkan")
+                        .forUseAtConfigurationTime().present
+                if (!exclude_vulkan) {
                     matcArgs += ['-a', 'vulkan']
                 }
+
+                def mat_no_opt = providers
+                        .gradleProperty("com.google.android.filament.matnopt")
+                        .forUseAtConfigurationTime().present
+                if (mat_no_opt) {
+                    matcArgs += ['-g']
+                }
+
                 matcArgs += ['-a', 'opengl', '-p', 'mobile', '-o', getOutputFile(file), file]
 
-                project.exec {
+                exec.exec {
                     standardOutput out
                     errorOutput err
-                    executable "${getBinary()}"
+                    executable "${binary.get()}"
                     args matcArgs
                 }
             }
@@ -143,15 +169,21 @@ abstract class MaterialCompiler extends TaskWithBinary {
 
 // Custom task to process IBLs using cmgen
 // This task handles incremental builds
-class IblGenerator extends TaskWithBinary {
-    String cmgenArgs = null
+abstract class IblGenerator extends TaskWithBinary {
+    @Input
+    @Optional
+    abstract Property<String> getCmgenArgs()
 
     @Incremental
     @InputFile
-    final RegularFileProperty inputFile = project.objects.fileProperty()
+    abstract RegularFileProperty getInputFile()
 
     @OutputDirectory
-    final DirectoryProperty outputDir = project.objects.directoryProperty()
+    abstract DirectoryProperty getOutputDir()
+
+    @Inject abstract FileSystemOperations getFs()
+    @Inject abstract ExecOperations getExec()
+    @Inject abstract ObjectFactory getObjects()
 
     IblGenerator() {
         super("cmgen")
@@ -160,7 +192,9 @@ class IblGenerator extends TaskWithBinary {
     @TaskAction
     void execute(InputChanges inputs) {
         if (!inputs.incremental) {
-            project.delete(project.fileTree(outputDir.asFile.get()).matching { include '*' })
+            fs.delete({
+                delete(objects.fileTree().from(outputDir).matching { include '*' })
+            })
         }
 
         inputs.getFileChanges(inputFile).each { InputFileDetails change ->
@@ -178,23 +212,25 @@ class IblGenerator extends TaskWithBinary {
                 out.write(header)
                 out.flush()
 
-                if (!getBinary().exists()) {
-                    throw new GradleException("Could not find ${getBinary()}." +
+                if (!new File(binary.get()).exists()) {
+                    throw new GradleException("Could not find ${binary.get()}." +
                             " Ensure Filament has been built/installed before building this app.")
                 }
 
                 def outputPath = outputDir.get().asFile
-                project.exec {
+                def commandArgs = cmgenArgs.getOrNull()
+                if (commandArgs == null) {
+                    commandArgs =
+                            '-q -x ' + outputPath + ' --format=rgb32f ' +
+                                    '--extract-blur=0.08 --extract=' + outputPath.absolutePath
+                }
+                commandArgs = commandArgs + " " + file
+
+                exec.exec {
                     standardOutput out
-                    if (!cmgenArgs) {
-                        cmgenArgs =
-                                '-q -x ' + outputPath + ' --format=rgb32f ' +
-                                '--extract-blur=0.08 --extract=' + outputPath.absolutePath
-                    }
-                    cmgenArgs = cmgenArgs + " " + file
                     errorOutput err
-                    executable "${getBinary()}"
-                    args(cmgenArgs.split())
+                    executable "${binary.get()}"
+                    args(commandArgs.split())
                 }
             }
         }
@@ -207,13 +243,16 @@ class IblGenerator extends TaskWithBinary {
 
 // Custom task to compile mesh files using filamesh
 // This task handles incremental builds
-class MeshCompiler extends TaskWithBinary {
+abstract class MeshCompiler extends TaskWithBinary {
     @Incremental
     @InputFile
-    final RegularFileProperty inputFile = project.objects.fileProperty()
+    abstract RegularFileProperty getInputFile()
 
     @OutputDirectory
-    final DirectoryProperty outputDir = project.objects.directoryProperty()
+    abstract DirectoryProperty getOutputDir()
+
+    @Inject abstract FileSystemOperations getFs()
+    @Inject abstract ExecOperations getExec()
 
     MeshCompiler() {
         super("filamesh")
@@ -222,7 +261,9 @@ class MeshCompiler extends TaskWithBinary {
     @TaskAction
     void execute(InputChanges inputs) {
         if (!inputs.incremental) {
-            project.delete(project.fileTree(outputDir.asFile.get()).matching { include '*.filamesh' })
+            fs.delete({
+                delete(objects.fileTree().from(outputDir).matching { include '*.filamesh' })
+            })
         }
 
         inputs.getFileChanges(inputFile).each { InputFileDetails change ->
@@ -240,15 +281,15 @@ class MeshCompiler extends TaskWithBinary {
                 out.write(header)
                 out.flush()
 
-                if (!getBinary().exists()) {
-                    throw new GradleException("Could not find ${getBinary()}." +
+                if (!new File(binary.get()).exists()) {
+                    throw new GradleException("Could not find ${binary.get()}." +
                             " Ensure Filament has been built/installed before building this app.")
                 }
 
-                project.exec {
+                exec.exec {
                     standardOutput out
                     errorOutput err
-                    executable "${getBinary()}"
+                    executable "${binary.get()}"
                     args(file, getOutputFile(file))
                 }
             }
@@ -282,17 +323,12 @@ class FilamentToolsPlugin implements Plugin<Project> {
         extension.meshInputFile = project.objects.fileProperty()
         extension.meshOutputDir = project.objects.directoryProperty()
 
-        project.ext.filamentToolsPath = project.file("../../../out/release/filament")
-        if (project.hasProperty("filament_tools_dir")) {
-            project.ext.filamentToolsPath = project.file(project.property("filament_tools_dir"))
-        }
-
         project.tasks.register("filamentCompileMaterials", MaterialCompiler) {
             enabled =
                     extension.materialInputDir.isPresent() &&
                     extension.materialOutputDir.isPresent()
-            inputDir = extension.materialInputDir.getOrNull()
-            outputDir = extension.materialOutputDir.getOrNull()
+            inputDir.set(extension.materialInputDir.getOrNull())
+            outputDir.set(extension.materialOutputDir.getOrNull())
         }
 
         project.preBuild.dependsOn "filamentCompileMaterials"

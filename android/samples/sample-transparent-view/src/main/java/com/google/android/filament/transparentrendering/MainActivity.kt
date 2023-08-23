@@ -33,6 +33,7 @@ import com.google.android.filament.*
 import com.google.android.filament.RenderableManager.*
 import com.google.android.filament.VertexBuffer.*
 import com.google.android.filament.android.DisplayHelper
+import com.google.android.filament.android.FilamentHelper
 import com.google.android.filament.android.UiHelper
 
 import java.nio.ByteBuffer
@@ -136,12 +137,12 @@ class MainActivity : Activity() {
         renderer = engine.createRenderer()
         scene = engine.createScene()
         view = engine.createView()
-        camera = engine.createCamera()
+        camera = engine.createCamera(engine.entityManager.create())
 
         // clear the swapchain with transparent pixels
-        val options = renderer.clearOptions
-        options.clear = true
-        renderer.clearOptions = options
+        renderer.clearOptions = renderer.clearOptions.apply {
+            clear = true
+        }
     }
 
     private fun setupView() {
@@ -281,7 +282,7 @@ class MainActivity : Activity() {
 
         // Stop the animation and any pending frame
         choreographer.removeFrameCallback(frameScheduler)
-        animator.cancel();
+        animator.cancel()
 
         // Always detach the surface before destroying the engine
         uiHelper.detach()
@@ -294,12 +295,13 @@ class MainActivity : Activity() {
         engine.destroyMaterial(material)
         engine.destroyView(view)
         engine.destroyScene(scene)
-        engine.destroyCamera(camera)
+        engine.destroyCameraComponent(camera.entity)
 
         // Engine.destroyEntity() destroys Filament related resources only
         // (components), not the entity itself
         val entityManager = EntityManager.get()
         entityManager.destroy(renderable)
+        entityManager.destroy(camera.entity)
 
         // Destroying the engine will free up any resource you may have forgotten
         // to destroy, but it's recommended to do the cleanup properly
@@ -327,11 +329,11 @@ class MainActivity : Activity() {
         override fun onNativeWindowChanged(surface: Surface) {
             swapChain?.let { engine.destroySwapChain(it) }
             swapChain = engine.createSwapChain(surface, uiHelper.swapChainFlags)
-            displayHelper.attach(renderer, surfaceView.display);
+            displayHelper.attach(renderer, surfaceView.display)
         }
 
         override fun onDetachedFromSurface() {
-            displayHelper.detach();
+            displayHelper.detach()
             swapChain?.let {
                 engine.destroySwapChain(it)
                 // Required to ensure we don't return before Filament is done executing the
@@ -349,9 +351,12 @@ class MainActivity : Activity() {
                     -aspect * zoom, aspect * zoom, -zoom, zoom, 0.0, 10.0)
 
             view.viewport = Viewport(0, 0, width, height)
+
+            FilamentHelper.synchronizePendingFrames(engine)
         }
     }
 
+    @Suppress("SameParameterValue")
     private fun readUncompressedAsset(assetName: String): ByteBuffer {
         assets.openFd(assetName).use { fd ->
             val input = fd.createInputStream()

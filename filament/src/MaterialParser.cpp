@@ -17,17 +17,19 @@
 
 #include "MaterialParser.h"
 
-#include <filaflat/BlobDictionary.h>
 #include <filaflat/ChunkContainer.h>
 #include <filaflat/MaterialChunk.h>
-#include <filaflat/ShaderBuilder.h>
 #include <filaflat/DictionaryReader.h>
 #include <filaflat/Unflattener.h>
 
 #include <filament/MaterialChunkType.h>
 
+#include <private/filament/SamplerBindingsInfo.h>
 #include <private/filament/SamplerInterfaceBlock.h>
-#include <private/filament/UniformInterfaceBlock.h>
+#include <private/filament/BufferInterfaceBlock.h>
+#include <private/filament/SubpassInfo.h>
+#include <private/filament/Variant.h>
+#include <private/filament/ConstantInfo.h>
 
 #include <utils/CString.h>
 
@@ -68,11 +70,13 @@ MaterialParser::MaterialParserDetails::MaterialParserDetails(Backend backend, co
 }
 
 template<typename T>
-bool MaterialParser::MaterialParserDetails::getFromSimpleChunk(filamat::ChunkType type, T* value) const noexcept {
-    if (mChunkContainer.hasChunk(type)) {
-        Unflattener unflattener(
-                mChunkContainer.getChunkStart(type),
-                mChunkContainer.getChunkEnd(type));
+UTILS_NOINLINE
+bool MaterialParser::MaterialParserDetails::getFromSimpleChunk(
+        filamat::ChunkType type, T* value) const noexcept {
+    ChunkContainer const& chunkContainer = mChunkContainer;
+    ChunkContainer::ChunkDesc chunkDesc;
+    if (chunkContainer.hasChunk(type, &chunkDesc)) {
+        Unflattener unflattener(chunkDesc.start, chunkDesc.start + chunkDesc.size);
         return unflattener.read(value);
     }
     return false;
@@ -94,16 +98,19 @@ ChunkContainer const& MaterialParser::getChunkContainer() const noexcept {
 
 MaterialParser::ParseResult MaterialParser::parse() noexcept {
     ChunkContainer& cc = getChunkContainer();
-    if (cc.parse()) {
-        if (!cc.hasChunk(mImpl.mMaterialTag) || !cc.hasChunk(mImpl.mDictionaryTag)) {
-            return ParseResult::ERROR_MISSING_BACKEND;
-        }
-        if (!DictionaryReader::unflatten(cc, mImpl.mDictionaryTag, mImpl.mBlobDictionary)) {
-            return ParseResult::ERROR_OTHER;
-        }
-        if (!mImpl.mMaterialChunk.readIndex(mImpl.mMaterialTag)) {
-            return ParseResult::ERROR_OTHER;
-        }
+    if (UTILS_UNLIKELY(!cc.parse())) {
+        return ParseResult::ERROR_OTHER;
+    }
+    const ChunkType matTag = mImpl.mMaterialTag;
+    const ChunkType dictTag = mImpl.mDictionaryTag;
+    if (UTILS_UNLIKELY(!cc.hasChunk(matTag) || !cc.hasChunk(dictTag))) {
+        return ParseResult::ERROR_MISSING_BACKEND;
+    }
+    if (UTILS_UNLIKELY(!DictionaryReader::unflatten(cc, dictTag, mImpl.mBlobDictionary))) {
+        return ParseResult::ERROR_OTHER;
+    }
+    if (UTILS_UNLIKELY(!mImpl.mMaterialChunk.initialize(matTag))) {
+        return ParseResult::ERROR_OTHER;
     }
     return ParseResult::SUCCESS;
 }
@@ -113,28 +120,43 @@ bool MaterialParser::getMaterialVersion(uint32_t* value) const noexcept {
     return mImpl.getFromSimpleChunk(ChunkType::MaterialVersion, value);
 }
 
+bool MaterialParser::getFeatureLevel(uint8_t* value) const noexcept {
+    return mImpl.getFromSimpleChunk(ChunkType::MaterialFeatureLevel, value);
+}
+
 bool MaterialParser::getName(utils::CString* cstring) const noexcept {
-   ChunkType type = ChunkType::MaterialName;
-   const uint8_t* start = mImpl.mChunkContainer.getChunkStart(type);
-   const uint8_t* end = mImpl.mChunkContainer.getChunkEnd(type);
+   auto [start, end] = mImpl.mChunkContainer.getChunkRange(MaterialName);
+    if (start == end) return false;
    Unflattener unflattener(start, end);
    return unflattener.read(cstring);
 }
 
-bool MaterialParser::getUIB(UniformInterfaceBlock* uib) const noexcept {
-    auto type = MaterialUib;
-    const uint8_t* start = mImpl.mChunkContainer.getChunkStart(type);
-    const uint8_t* end = mImpl.mChunkContainer.getChunkEnd(type);
+bool MaterialParser::getCacheId(uint64_t* cacheId) const noexcept {
+   auto [start, end] = mImpl.mChunkContainer.getChunkRange(MaterialCacheId);
+    if (start == end) return false;
+   Unflattener unflattener(start, end);
+   return unflattener.read(cacheId);
+}
+
+bool MaterialParser::getUIB(BufferInterfaceBlock* uib) const noexcept {
+    auto [start, end] = mImpl.mChunkContainer.getChunkRange(MaterialUib);
+    if (start == end) return false;
     Unflattener unflattener(start, end);
     return ChunkUniformInterfaceBlock::unflatten(unflattener, uib);
 }
 
 bool MaterialParser::getSIB(SamplerInterfaceBlock* sib) const noexcept {
-    auto type = MaterialSib;
-    const uint8_t* start = mImpl.mChunkContainer.getChunkStart(type);
-    const uint8_t* end = mImpl.mChunkContainer.getChunkEnd(type);
+    auto [start, end] = mImpl.mChunkContainer.getChunkRange(MaterialSib);
+    if (start == end) return false;
     Unflattener unflattener(start, end);
     return ChunkSamplerInterfaceBlock::unflatten(unflattener, sib);
+}
+
+bool MaterialParser::getSubpasses(SubpassInfo* subpass) const noexcept {
+    auto [start, end] = mImpl.mChunkContainer.getChunkRange(MaterialSubpass);
+    if (start == end) return false;
+    Unflattener unflattener(start, end);
+    return ChunkSubpassInterfaceBlock::unflatten(unflattener, subpass);
 }
 
 bool MaterialParser::getShaderModels(uint32_t* value) const noexcept {
@@ -143,6 +165,45 @@ bool MaterialParser::getShaderModels(uint32_t* value) const noexcept {
 
 bool MaterialParser::getMaterialProperties(uint64_t* value) const noexcept {
     return mImpl.getFromSimpleChunk(ChunkType::MaterialProperties, value);
+}
+
+bool MaterialParser::getUniformBlockBindings(
+        utils::FixedCapacityVector<std::pair<utils::CString, uint8_t>>* value) const noexcept {
+    auto [start, end] = mImpl.mChunkContainer.getChunkRange(MaterialUniformBindings);
+    if (start == end) return false;
+    Unflattener unflattener(start, end);
+    return ChunkUniformBlockBindings::unflatten(unflattener, value);
+}
+
+bool MaterialParser::getBindingUniformInfo(BindingUniformInfoContainer* container) const noexcept {
+    auto [start, end] = mImpl.mChunkContainer.getChunkRange(MaterialBindingUniformInfo);
+    if (start == end) return false;
+    Unflattener unflattener(start, end);
+    return ChunkBindingUniformInfo::unflatten(unflattener, container);
+}
+
+bool MaterialParser::getAttributeInfo(AttributeInfoContainer* container) const noexcept {
+    auto [start, end] = mImpl.mChunkContainer.getChunkRange(MaterialAttributeInfo);
+    if (start == end) return false;
+    Unflattener unflattener(start, end);
+    return ChunkAttributeInfo::unflatten(unflattener, container);
+}
+
+bool MaterialParser::getSamplerBlockBindings(
+        SamplerGroupBindingInfoList* pSamplerGroupInfoList,
+        SamplerBindingToNameMap* pSamplerBindingToNameMap) const noexcept {
+    auto [start, end] = mImpl.mChunkContainer.getChunkRange(MaterialSamplerBindings);
+    if (start == end) return false;
+    Unflattener unflattener(start, end);
+    return ChunkSamplerBlockBindings::unflatten(unflattener,
+            pSamplerGroupInfoList, pSamplerBindingToNameMap);
+}
+
+bool MaterialParser::getConstants(utils::FixedCapacityVector<MaterialConstant>* value) const noexcept {
+    auto [start, end] = mImpl.mChunkContainer.getChunkRange(filamat::MaterialConstants);
+    if (start == end) return false;
+    Unflattener unflattener(start, end);
+    return ChunkMaterialConstants::unflatten(unflattener, value);
 }
 
 bool MaterialParser::getDepthWriteSet(bool* value) const noexcept {
@@ -167,6 +228,10 @@ bool MaterialParser::getColorWrite(bool* value) const noexcept {
 
 bool MaterialParser::getDepthTest(bool* value) const noexcept {
     return mImpl.getFromSimpleChunk(ChunkType::MaterialDepthTest, value);
+}
+
+bool MaterialParser::getInstanced(bool* value) const noexcept {
+    return mImpl.getFromSimpleChunk(ChunkType::MaterialInstanced, value);
 }
 
 bool MaterialParser::getCullingMode(CullingMode* value) const noexcept {
@@ -208,6 +273,14 @@ bool MaterialParser::getBlendingMode(BlendingMode* value) const noexcept {
 
 bool MaterialParser::getMaskThreshold(float* value) const noexcept {
     return mImpl.getFromSimpleChunk(ChunkType::MaterialMaskThreshold, value);
+}
+
+bool MaterialParser::getAlphaToCoverageSet(bool* value) const noexcept {
+    return mImpl.getFromSimpleChunk(ChunkType::MaterialAlphaToCoverageSet, value);
+}
+
+bool MaterialParser::getAlphaToCoverage(bool* value) const noexcept {
+    return mImpl.getFromSimpleChunk(ChunkType::MaterialAlphaToCoverage, value);
 }
 
 bool MaterialParser::hasShadowMultiplier(bool* value) const noexcept {
@@ -258,26 +331,32 @@ bool MaterialParser::getRefractionType(RefractionType* value) const noexcept {
     return mImpl.getFromSimpleChunk(ChunkType::MaterialRefractionType, (uint8_t*)value);
 }
 
-bool MaterialParser::getShader(ShaderBuilder& shader,
-        ShaderModel shaderModel, uint8_t variant, ShaderType stage) noexcept {
+bool MaterialParser::getReflectionMode(ReflectionMode* value) const noexcept {
+    static_assert(sizeof(ReflectionMode) == sizeof(uint8_t),
+            "ReflectionMode expected size is wrong");
+    return mImpl.getFromSimpleChunk(ChunkType::MaterialReflectionMode, (uint8_t*)value);
+}
+
+bool MaterialParser::getShader(ShaderContent& shader,
+        ShaderModel shaderModel, Variant variant, ShaderStage stage) noexcept {
     return mImpl.mMaterialChunk.getShader(shader,
-            mImpl.mBlobDictionary, (uint8_t)shaderModel, variant, stage);
+            mImpl.mBlobDictionary, shaderModel, variant, stage);
 }
 
 // ------------------------------------------------------------------------------------------------
 
 
 bool ChunkUniformInterfaceBlock::unflatten(Unflattener& unflattener,
-        filament::UniformInterfaceBlock* uib) {
+        filament::BufferInterfaceBlock* uib) {
 
-    UniformInterfaceBlock::Builder builder = UniformInterfaceBlock::Builder();
+    BufferInterfaceBlock::Builder builder = BufferInterfaceBlock::Builder();
 
     CString name;
     if (!unflattener.read(&name)) {
         return false;
     }
 
-    builder.name(std::move(name));
+    builder.name({ name.data(), name.size() });
 
     // Read number of fields.
     uint64_t numFields = 0;
@@ -307,8 +386,11 @@ bool ChunkUniformInterfaceBlock::unflatten(Unflattener& unflattener,
             return false;
         }
 
-        builder.add(fieldName, fieldSize, UniformInterfaceBlock::Type(fieldType),
-                UniformInterfaceBlock::Precision(fieldPrecision));
+        // a size of 1 means not an array
+        builder.add({{{ fieldName.data(), fieldName.size() },
+                      uint32_t(fieldSize == 1 ? 0 : fieldSize),
+                      BufferInterfaceBlock::Type(fieldType),
+                      BufferInterfaceBlock::Precision(fieldPrecision) }});
     }
 
     *uib = builder.build();
@@ -324,7 +406,7 @@ bool ChunkSamplerInterfaceBlock::unflatten(Unflattener& unflattener,
     if (!unflattener.read(&name)) {
         return false;
     }
-    builder.name(name);
+    builder.name({ name.data(), name.size() });
 
     // Read number of fields.
     uint64_t numFields = 0;
@@ -359,13 +441,235 @@ bool ChunkSamplerInterfaceBlock::unflatten(Unflattener& unflattener,
             return false;
         }
 
-        builder.add(fieldName, SamplerInterfaceBlock::Type(fieldType),
+        builder.add({ fieldName.data(), fieldName.size() }, SamplerInterfaceBlock::Type(fieldType),
                 SamplerInterfaceBlock::Format(fieldFormat),
                 SamplerInterfaceBlock::Precision(fieldPrecision),
                 fieldMultisample);
     }
 
     *sib = builder.build();
+    return true;
+}
+
+bool ChunkSubpassInterfaceBlock::unflatten(Unflattener& unflattener,
+        filament::SubpassInfo* subpass) {
+
+    CString block;
+    if (!unflattener.read(&block)) {
+        return false;
+    }
+    subpass->block = block;
+
+    // Read number of subpasses.
+    uint64_t numSubpasses = 0;
+    if (!unflattener.read(&numSubpasses)) {
+        return false;
+    }
+
+    for (uint64_t i = 0; i < numSubpasses; i++) {
+        CString subpassName;
+        uint8_t subpassType = 0;
+        uint8_t subpassFormat = 0;
+        uint8_t subpassPrecision = 0;
+
+        if (!unflattener.read(&subpass->name)) {
+            return false;
+        }
+
+        if (!unflattener.read(&subpassType)) {
+            return false;
+        }
+
+        if (!unflattener.read(&subpassFormat)) {
+            return false;
+        }
+
+        if (!unflattener.read(&subpassPrecision)) {
+            return false;
+        }
+
+        if (!unflattener.read(&subpass->attachmentIndex)) {
+            return false;
+        }
+
+        if (!unflattener.read(&subpass->binding)) {
+            return false;
+        }
+
+        subpass->type = SubpassType (subpassType);
+        subpass->format = Format (subpassFormat);
+        subpass->precision = Precision (subpassPrecision);
+
+        subpass->isValid = true;
+    }
+
+    return true;
+}
+
+bool ChunkUniformBlockBindings::unflatten(filaflat::Unflattener& unflattener,
+        utils::FixedCapacityVector<std::pair<utils::CString, uint8_t>>* uniformBlockBindings) {
+    uint8_t count;
+    if (!unflattener.read(&count)) {
+        return false;
+    }
+    uniformBlockBindings->reserve(count);
+
+    for (uint8_t i = 0; i < count; i++) {
+        CString name;
+        uint8_t binding;
+        if (!unflattener.read(&name)) {
+            return false;
+        }
+        if (!unflattener.read(&binding)) {
+            return false;
+        }
+        uniformBlockBindings->emplace_back(std::move(name), binding);
+    }
+    return true;
+}
+
+bool ChunkBindingUniformInfo::unflatten(filaflat::Unflattener& unflattener,
+        MaterialParser::BindingUniformInfoContainer* bindingUniformInfo) {
+    uint8_t bindingPointCount;
+    if (!unflattener.read(&bindingPointCount)) {
+        return false;
+    }
+    bindingUniformInfo->reserve(bindingPointCount);
+    for (size_t i = 0; i < bindingPointCount; i++) {
+        uint8_t index;
+        if (!unflattener.read(&index)) {
+            return false;
+        }
+        uint8_t uniformCount;
+        if (!unflattener.read(&uniformCount)) {
+            return false;
+        }
+
+        Program::UniformInfo uniforms = Program::UniformInfo::with_capacity(uniformCount);
+        for (size_t j = 0; j < uniformCount; j++) {
+            utils::CString name;
+            if (!unflattener.read(&name)) {
+                return false;
+            }
+            uint16_t offset;
+            if (!unflattener.read(&offset)) {
+                return false;
+            }
+            uint8_t size;
+            if (!unflattener.read(&size)) {
+                return false;
+            }
+            uint8_t type;
+            if (!unflattener.read(&type)) {
+                return false;
+            }
+            uniforms.push_back({ name, offset, size, UniformType(type) });
+        }
+        bindingUniformInfo->emplace_back(UniformBindingPoints(index), std::move(uniforms));
+    }
+    return true;
+}
+
+bool ChunkAttributeInfo::unflatten(filaflat::Unflattener& unflattener,
+        MaterialParser::AttributeInfoContainer* attributeInfoContainer) {
+
+    uint8_t attributeCount;
+    if (!unflattener.read(&attributeCount)) {
+        return false;
+    }
+
+    attributeInfoContainer->reserve(attributeCount);
+
+    for (size_t j = 0; j < attributeCount; j++) {
+        utils::CString name;
+        if (!unflattener.read(&name)) {
+            return false;
+        }
+        uint8_t location;
+        if (!unflattener.read(&location)) {
+            return false;
+        }
+        attributeInfoContainer->emplace_back(name, location);
+    }
+
+    return true;
+}
+
+bool ChunkSamplerBlockBindings::unflatten(Unflattener& unflattener,
+        SamplerGroupBindingInfoList* pSamplerGroupBindingInfoList,
+        SamplerBindingToNameMap* pSamplerBindingToNameMap) {
+    assert_invariant(pSamplerGroupBindingInfoList && pSamplerBindingToNameMap);
+    SamplerGroupBindingInfoList& samplerGroupBindingInfoList = *pSamplerGroupBindingInfoList;
+    SamplerBindingToNameMap& samplerBindingToNameMap = *pSamplerBindingToNameMap;
+
+    uint8_t count;
+    if (!unflattener.read(&count)) {
+        return false;
+    }
+    assert_invariant(count == utils::Enum::count<SamplerBindingPoints>());
+
+    UTILS_NOUNROLL
+    for (size_t i = 0; i < count; i++) {
+        if (!unflattener.read(&samplerGroupBindingInfoList[i].bindingOffset)) {
+            return false;
+        }
+        if (!unflattener.read((uint8_t *)&samplerGroupBindingInfoList[i].shaderStageFlags)) {
+            return false;
+        }
+        if (!unflattener.read(&samplerGroupBindingInfoList[i].count)) {
+            return false;
+        }
+    }
+
+    if (!unflattener.read(&count)) {
+        return false;
+    }
+
+    samplerBindingToNameMap.reserve(count);
+    samplerBindingToNameMap.resize(count);
+    for (size_t i = 0; i < count; i++) {
+        uint8_t binding;
+        if (!unflattener.read(&binding)) {
+            return false;
+        }
+        assert_invariant(binding < backend::MAX_SAMPLER_COUNT);
+        if (!unflattener.read(&samplerBindingToNameMap[binding])) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool ChunkMaterialConstants::unflatten(filaflat::Unflattener& unflattener,
+        utils::FixedCapacityVector<MaterialConstant>* materialConstants) {
+    assert_invariant(materialConstants);
+
+    // Read number of constants.
+    uint64_t numConstants = 0;
+    if (!unflattener.read(&numConstants)) {
+        return false;
+    }
+
+    materialConstants->reserve(numConstants);
+    materialConstants->resize(numConstants);
+
+    for (uint64_t i = 0; i < numConstants; i++) {
+        CString constantName;
+        uint8_t constantType = 0;
+
+        if (!unflattener.read(&constantName)) {
+            return false;
+        }
+
+        if (!unflattener.read(&constantType)) {
+            return false;
+        }
+
+        (*materialConstants)[i].name = constantName;
+        (*materialConstants)[i].type = static_cast<backend::ConstantType>(constantType);
+    }
+
     return true;
 }
 

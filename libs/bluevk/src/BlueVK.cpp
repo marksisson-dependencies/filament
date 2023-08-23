@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 The Android Open Source Project
+ * Copyright (C) 2022 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,31 +22,29 @@
 
 #include <bluevk/BlueVK.h>
 
+namespace bluevk {
+
 static void loadLoaderFunctions(void* context, PFN_vkVoidFunction (*loadcb)(void*, const char*));
 static void loadInstanceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(void*, const char*));
 static void loadDeviceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(void*, const char*));
 static PFN_vkVoidFunction vkGetInstanceProcAddrWrapper(void* context, const char* name);
 static PFN_vkVoidFunction vkGetDeviceProcAddrWrapper(void* context, const char* name);
 
-namespace bluevk {
-
 // OS Dependent.
 extern bool loadLibrary();
 extern void* getInstanceProcAddr();
 
-}
-
-bool bluevk::initialize() {
-    if (!bluevk::loadLibrary()) {
+bool initialize() {
+    if (!loadLibrary()) {
         return false;
     }
 
-    vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr) bluevk::getInstanceProcAddr();
+    vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr) getInstanceProcAddr();
     loadLoaderFunctions(nullptr, vkGetInstanceProcAddrWrapper);
     return true;
 }
 
-void bluevk::bindInstance(VkInstance instance) {
+void bindInstance(VkInstance instance) {
     loadInstanceFunctions(instance, vkGetInstanceProcAddrWrapper);
     loadDeviceFunctions(instance, vkGetInstanceProcAddrWrapper);
 }
@@ -99,6 +97,13 @@ static void loadInstanceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(vo
     vkGetPhysicalDeviceQueueFamilyProperties2 = (PFN_vkGetPhysicalDeviceQueueFamilyProperties2) loadcb(context, "vkGetPhysicalDeviceQueueFamilyProperties2");
     vkGetPhysicalDeviceSparseImageFormatProperties2 = (PFN_vkGetPhysicalDeviceSparseImageFormatProperties2) loadcb(context, "vkGetPhysicalDeviceSparseImageFormatProperties2");
 #endif // defined(VK_VERSION_1_1)
+#if defined(VK_VERSION_1_3)
+    vkGetPhysicalDeviceToolProperties = (PFN_vkGetPhysicalDeviceToolProperties) loadcb(context, "vkGetPhysicalDeviceToolProperties");
+#endif // defined(VK_VERSION_1_3)
+#if defined(VK_EXT_acquire_drm_display)
+    vkAcquireDrmDisplayEXT = (PFN_vkAcquireDrmDisplayEXT) loadcb(context, "vkAcquireDrmDisplayEXT");
+    vkGetDrmDisplayEXT = (PFN_vkGetDrmDisplayEXT) loadcb(context, "vkGetDrmDisplayEXT");
+#endif // defined(VK_EXT_acquire_drm_display)
 #if defined(VK_EXT_acquire_xlib_display)
     vkAcquireXlibDisplayEXT = (PFN_vkAcquireXlibDisplayEXT) loadcb(context, "vkAcquireXlibDisplayEXT");
     vkGetRandROutputDisplayEXT = (PFN_vkGetRandROutputDisplayEXT) loadcb(context, "vkGetRandROutputDisplayEXT");
@@ -171,6 +176,9 @@ static void loadInstanceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(vo
 #if defined(VK_KHR_external_semaphore_capabilities)
     vkGetPhysicalDeviceExternalSemaphorePropertiesKHR = (PFN_vkGetPhysicalDeviceExternalSemaphorePropertiesKHR) loadcb(context, "vkGetPhysicalDeviceExternalSemaphorePropertiesKHR");
 #endif // defined(VK_KHR_external_semaphore_capabilities)
+#if defined(VK_KHR_fragment_shading_rate)
+    vkGetPhysicalDeviceFragmentShadingRatesKHR = (PFN_vkGetPhysicalDeviceFragmentShadingRatesKHR) loadcb(context, "vkGetPhysicalDeviceFragmentShadingRatesKHR");
+#endif // defined(VK_KHR_fragment_shading_rate)
 #if defined(VK_KHR_get_display_properties2)
     vkGetDisplayModeProperties2KHR = (PFN_vkGetDisplayModeProperties2KHR) loadcb(context, "vkGetDisplayModeProperties2KHR");
     vkGetDisplayPlaneCapabilities2KHR = (PFN_vkGetDisplayPlaneCapabilities2KHR) loadcb(context, "vkGetDisplayPlaneCapabilities2KHR");
@@ -201,6 +209,10 @@ static void loadInstanceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(vo
     vkGetPhysicalDeviceSurfacePresentModesKHR = (PFN_vkGetPhysicalDeviceSurfacePresentModesKHR) loadcb(context, "vkGetPhysicalDeviceSurfacePresentModesKHR");
     vkGetPhysicalDeviceSurfaceSupportKHR = (PFN_vkGetPhysicalDeviceSurfaceSupportKHR) loadcb(context, "vkGetPhysicalDeviceSurfaceSupportKHR");
 #endif // defined(VK_KHR_surface)
+#if defined(VK_KHR_video_queue)
+    vkGetPhysicalDeviceVideoCapabilitiesKHR = (PFN_vkGetPhysicalDeviceVideoCapabilitiesKHR) loadcb(context, "vkGetPhysicalDeviceVideoCapabilitiesKHR");
+    vkGetPhysicalDeviceVideoFormatPropertiesKHR = (PFN_vkGetPhysicalDeviceVideoFormatPropertiesKHR) loadcb(context, "vkGetPhysicalDeviceVideoFormatPropertiesKHR");
+#endif // defined(VK_KHR_video_queue)
 #if defined(VK_KHR_wayland_surface)
     vkCreateWaylandSurfaceKHR = (PFN_vkCreateWaylandSurfaceKHR) loadcb(context, "vkCreateWaylandSurfaceKHR");
     vkGetPhysicalDeviceWaylandPresentationSupportKHR = (PFN_vkGetPhysicalDeviceWaylandPresentationSupportKHR) loadcb(context, "vkGetPhysicalDeviceWaylandPresentationSupportKHR");
@@ -226,6 +238,10 @@ static void loadInstanceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(vo
 #if defined(VK_NN_vi_surface)
     vkCreateViSurfaceNN = (PFN_vkCreateViSurfaceNN) loadcb(context, "vkCreateViSurfaceNN");
 #endif // defined(VK_NN_vi_surface)
+#if defined(VK_NV_acquire_winrt_display)
+    vkAcquireWinrtDisplayNV = (PFN_vkAcquireWinrtDisplayNV) loadcb(context, "vkAcquireWinrtDisplayNV");
+    vkGetWinrtDisplayNV = (PFN_vkGetWinrtDisplayNV) loadcb(context, "vkGetWinrtDisplayNV");
+#endif // defined(VK_NV_acquire_winrt_display)
 #if defined(VK_NV_cooperative_matrix)
     vkGetPhysicalDeviceCooperativeMatrixPropertiesNV = (PFN_vkGetPhysicalDeviceCooperativeMatrixPropertiesNV) loadcb(context, "vkGetPhysicalDeviceCooperativeMatrixPropertiesNV");
 #endif // defined(VK_NV_cooperative_matrix)
@@ -235,6 +251,10 @@ static void loadInstanceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(vo
 #if defined(VK_NV_external_memory_capabilities)
     vkGetPhysicalDeviceExternalImageFormatPropertiesNV = (PFN_vkGetPhysicalDeviceExternalImageFormatPropertiesNV) loadcb(context, "vkGetPhysicalDeviceExternalImageFormatPropertiesNV");
 #endif // defined(VK_NV_external_memory_capabilities)
+#if defined(VK_QNX_screen_surface)
+    vkCreateScreenSurfaceQNX = (PFN_vkCreateScreenSurfaceQNX) loadcb(context, "vkCreateScreenSurfaceQNX");
+    vkGetPhysicalDeviceScreenPresentationSupportQNX = (PFN_vkGetPhysicalDeviceScreenPresentationSupportQNX) loadcb(context, "vkGetPhysicalDeviceScreenPresentationSupportQNX");
+#endif // defined(VK_QNX_screen_surface)
 #if (defined(VK_KHR_device_group) && defined(VK_KHR_surface)) || (defined(VK_KHR_swapchain) && defined(VK_VERSION_1_1))
     vkGetPhysicalDevicePresentRectanglesKHR = (PFN_vkGetPhysicalDevicePresentRectanglesKHR) loadcb(context, "vkGetPhysicalDevicePresentRectanglesKHR");
 #endif // (defined(VK_KHR_device_group) && defined(VK_KHR_surface)) || (defined(VK_KHR_swapchain) && defined(VK_VERSION_1_1))
@@ -344,7 +364,6 @@ static void loadDeviceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(void
     vkGetImageMemoryRequirements = (PFN_vkGetImageMemoryRequirements) loadcb(context, "vkGetImageMemoryRequirements");
     vkGetImageSparseMemoryRequirements = (PFN_vkGetImageSparseMemoryRequirements) loadcb(context, "vkGetImageSparseMemoryRequirements");
     vkGetImageSubresourceLayout = (PFN_vkGetImageSubresourceLayout) loadcb(context, "vkGetImageSubresourceLayout");
-    vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr) loadcb(context, "vkGetInstanceProcAddr");
     vkGetPipelineCacheData = (PFN_vkGetPipelineCacheData) loadcb(context, "vkGetPipelineCacheData");
     vkGetQueryPoolResults = (PFN_vkGetQueryPoolResults) loadcb(context, "vkGetQueryPoolResults");
     vkGetRenderAreaGranularity = (PFN_vkGetRenderAreaGranularity) loadcb(context, "vkGetRenderAreaGranularity");
@@ -397,6 +416,44 @@ static void loadDeviceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(void
     vkSignalSemaphore = (PFN_vkSignalSemaphore) loadcb(context, "vkSignalSemaphore");
     vkWaitSemaphores = (PFN_vkWaitSemaphores) loadcb(context, "vkWaitSemaphores");
 #endif // defined(VK_VERSION_1_2)
+#if defined(VK_VERSION_1_3)
+    vkCmdBeginRendering = (PFN_vkCmdBeginRendering) loadcb(context, "vkCmdBeginRendering");
+    vkCmdBindVertexBuffers2 = (PFN_vkCmdBindVertexBuffers2) loadcb(context, "vkCmdBindVertexBuffers2");
+    vkCmdBlitImage2 = (PFN_vkCmdBlitImage2) loadcb(context, "vkCmdBlitImage2");
+    vkCmdCopyBuffer2 = (PFN_vkCmdCopyBuffer2) loadcb(context, "vkCmdCopyBuffer2");
+    vkCmdCopyBufferToImage2 = (PFN_vkCmdCopyBufferToImage2) loadcb(context, "vkCmdCopyBufferToImage2");
+    vkCmdCopyImage2 = (PFN_vkCmdCopyImage2) loadcb(context, "vkCmdCopyImage2");
+    vkCmdCopyImageToBuffer2 = (PFN_vkCmdCopyImageToBuffer2) loadcb(context, "vkCmdCopyImageToBuffer2");
+    vkCmdEndRendering = (PFN_vkCmdEndRendering) loadcb(context, "vkCmdEndRendering");
+    vkCmdPipelineBarrier2 = (PFN_vkCmdPipelineBarrier2) loadcb(context, "vkCmdPipelineBarrier2");
+    vkCmdResetEvent2 = (PFN_vkCmdResetEvent2) loadcb(context, "vkCmdResetEvent2");
+    vkCmdResolveImage2 = (PFN_vkCmdResolveImage2) loadcb(context, "vkCmdResolveImage2");
+    vkCmdSetCullMode = (PFN_vkCmdSetCullMode) loadcb(context, "vkCmdSetCullMode");
+    vkCmdSetDepthBiasEnable = (PFN_vkCmdSetDepthBiasEnable) loadcb(context, "vkCmdSetDepthBiasEnable");
+    vkCmdSetDepthBoundsTestEnable = (PFN_vkCmdSetDepthBoundsTestEnable) loadcb(context, "vkCmdSetDepthBoundsTestEnable");
+    vkCmdSetDepthCompareOp = (PFN_vkCmdSetDepthCompareOp) loadcb(context, "vkCmdSetDepthCompareOp");
+    vkCmdSetDepthTestEnable = (PFN_vkCmdSetDepthTestEnable) loadcb(context, "vkCmdSetDepthTestEnable");
+    vkCmdSetDepthWriteEnable = (PFN_vkCmdSetDepthWriteEnable) loadcb(context, "vkCmdSetDepthWriteEnable");
+    vkCmdSetEvent2 = (PFN_vkCmdSetEvent2) loadcb(context, "vkCmdSetEvent2");
+    vkCmdSetFrontFace = (PFN_vkCmdSetFrontFace) loadcb(context, "vkCmdSetFrontFace");
+    vkCmdSetPrimitiveRestartEnable = (PFN_vkCmdSetPrimitiveRestartEnable) loadcb(context, "vkCmdSetPrimitiveRestartEnable");
+    vkCmdSetPrimitiveTopology = (PFN_vkCmdSetPrimitiveTopology) loadcb(context, "vkCmdSetPrimitiveTopology");
+    vkCmdSetRasterizerDiscardEnable = (PFN_vkCmdSetRasterizerDiscardEnable) loadcb(context, "vkCmdSetRasterizerDiscardEnable");
+    vkCmdSetScissorWithCount = (PFN_vkCmdSetScissorWithCount) loadcb(context, "vkCmdSetScissorWithCount");
+    vkCmdSetStencilOp = (PFN_vkCmdSetStencilOp) loadcb(context, "vkCmdSetStencilOp");
+    vkCmdSetStencilTestEnable = (PFN_vkCmdSetStencilTestEnable) loadcb(context, "vkCmdSetStencilTestEnable");
+    vkCmdSetViewportWithCount = (PFN_vkCmdSetViewportWithCount) loadcb(context, "vkCmdSetViewportWithCount");
+    vkCmdWaitEvents2 = (PFN_vkCmdWaitEvents2) loadcb(context, "vkCmdWaitEvents2");
+    vkCmdWriteTimestamp2 = (PFN_vkCmdWriteTimestamp2) loadcb(context, "vkCmdWriteTimestamp2");
+    vkCreatePrivateDataSlot = (PFN_vkCreatePrivateDataSlot) loadcb(context, "vkCreatePrivateDataSlot");
+    vkDestroyPrivateDataSlot = (PFN_vkDestroyPrivateDataSlot) loadcb(context, "vkDestroyPrivateDataSlot");
+    vkGetDeviceBufferMemoryRequirements = (PFN_vkGetDeviceBufferMemoryRequirements) loadcb(context, "vkGetDeviceBufferMemoryRequirements");
+    vkGetDeviceImageMemoryRequirements = (PFN_vkGetDeviceImageMemoryRequirements) loadcb(context, "vkGetDeviceImageMemoryRequirements");
+    vkGetDeviceImageSparseMemoryRequirements = (PFN_vkGetDeviceImageSparseMemoryRequirements) loadcb(context, "vkGetDeviceImageSparseMemoryRequirements");
+    vkGetPrivateData = (PFN_vkGetPrivateData) loadcb(context, "vkGetPrivateData");
+    vkQueueSubmit2 = (PFN_vkQueueSubmit2) loadcb(context, "vkQueueSubmit2");
+    vkSetPrivateData = (PFN_vkSetPrivateData) loadcb(context, "vkSetPrivateData");
+#endif // defined(VK_VERSION_1_3)
 #if defined(VK_AMD_buffer_marker)
     vkCmdWriteBufferMarkerAMD = (PFN_vkCmdWriteBufferMarkerAMD) loadcb(context, "vkCmdWriteBufferMarkerAMD");
 #endif // defined(VK_AMD_buffer_marker)
@@ -426,6 +483,9 @@ static void loadDeviceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(void
 #if defined(VK_EXT_calibrated_timestamps)
     vkGetCalibratedTimestampsEXT = (PFN_vkGetCalibratedTimestampsEXT) loadcb(context, "vkGetCalibratedTimestampsEXT");
 #endif // defined(VK_EXT_calibrated_timestamps)
+#if defined(VK_EXT_color_write_enable)
+    vkCmdSetColorWriteEnableEXT = (PFN_vkCmdSetColorWriteEnableEXT) loadcb(context, "vkCmdSetColorWriteEnableEXT");
+#endif // defined(VK_EXT_color_write_enable)
 #if defined(VK_EXT_conditional_rendering)
     vkCmdBeginConditionalRenderingEXT = (PFN_vkCmdBeginConditionalRenderingEXT) loadcb(context, "vkCmdBeginConditionalRenderingEXT");
     vkCmdEndConditionalRenderingEXT = (PFN_vkCmdEndConditionalRenderingEXT) loadcb(context, "vkCmdEndConditionalRenderingEXT");
@@ -470,6 +530,13 @@ static void loadDeviceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(void
     vkCmdSetStencilTestEnableEXT = (PFN_vkCmdSetStencilTestEnableEXT) loadcb(context, "vkCmdSetStencilTestEnableEXT");
     vkCmdSetViewportWithCountEXT = (PFN_vkCmdSetViewportWithCountEXT) loadcb(context, "vkCmdSetViewportWithCountEXT");
 #endif // defined(VK_EXT_extended_dynamic_state)
+#if defined(VK_EXT_extended_dynamic_state2)
+    vkCmdSetDepthBiasEnableEXT = (PFN_vkCmdSetDepthBiasEnableEXT) loadcb(context, "vkCmdSetDepthBiasEnableEXT");
+    vkCmdSetLogicOpEXT = (PFN_vkCmdSetLogicOpEXT) loadcb(context, "vkCmdSetLogicOpEXT");
+    vkCmdSetPatchControlPointsEXT = (PFN_vkCmdSetPatchControlPointsEXT) loadcb(context, "vkCmdSetPatchControlPointsEXT");
+    vkCmdSetPrimitiveRestartEnableEXT = (PFN_vkCmdSetPrimitiveRestartEnableEXT) loadcb(context, "vkCmdSetPrimitiveRestartEnableEXT");
+    vkCmdSetRasterizerDiscardEnableEXT = (PFN_vkCmdSetRasterizerDiscardEnableEXT) loadcb(context, "vkCmdSetRasterizerDiscardEnableEXT");
+#endif // defined(VK_EXT_extended_dynamic_state2)
 #if defined(VK_EXT_external_memory_host)
     vkGetMemoryHostPointerPropertiesEXT = (PFN_vkGetMemoryHostPointerPropertiesEXT) loadcb(context, "vkGetMemoryHostPointerPropertiesEXT");
 #endif // defined(VK_EXT_external_memory_host)
@@ -483,12 +550,28 @@ static void loadDeviceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(void
 #if defined(VK_EXT_host_query_reset)
     vkResetQueryPoolEXT = (PFN_vkResetQueryPoolEXT) loadcb(context, "vkResetQueryPoolEXT");
 #endif // defined(VK_EXT_host_query_reset)
+#if defined(VK_EXT_image_compression_control)
+    vkGetImageSubresourceLayout2EXT = (PFN_vkGetImageSubresourceLayout2EXT) loadcb(context, "vkGetImageSubresourceLayout2EXT");
+#endif // defined(VK_EXT_image_compression_control)
 #if defined(VK_EXT_image_drm_format_modifier)
     vkGetImageDrmFormatModifierPropertiesEXT = (PFN_vkGetImageDrmFormatModifierPropertiesEXT) loadcb(context, "vkGetImageDrmFormatModifierPropertiesEXT");
 #endif // defined(VK_EXT_image_drm_format_modifier)
 #if defined(VK_EXT_line_rasterization)
     vkCmdSetLineStippleEXT = (PFN_vkCmdSetLineStippleEXT) loadcb(context, "vkCmdSetLineStippleEXT");
 #endif // defined(VK_EXT_line_rasterization)
+#if defined(VK_EXT_metal_objects)
+    vkExportMetalObjectsEXT = (PFN_vkExportMetalObjectsEXT) loadcb(context, "vkExportMetalObjectsEXT");
+#endif // defined(VK_EXT_metal_objects)
+#if defined(VK_EXT_multi_draw)
+    vkCmdDrawMultiEXT = (PFN_vkCmdDrawMultiEXT) loadcb(context, "vkCmdDrawMultiEXT");
+    vkCmdDrawMultiIndexedEXT = (PFN_vkCmdDrawMultiIndexedEXT) loadcb(context, "vkCmdDrawMultiIndexedEXT");
+#endif // defined(VK_EXT_multi_draw)
+#if defined(VK_EXT_pageable_device_local_memory)
+    vkSetDeviceMemoryPriorityEXT = (PFN_vkSetDeviceMemoryPriorityEXT) loadcb(context, "vkSetDeviceMemoryPriorityEXT");
+#endif // defined(VK_EXT_pageable_device_local_memory)
+#if defined(VK_EXT_pipeline_properties)
+    vkGetPipelinePropertiesEXT = (PFN_vkGetPipelinePropertiesEXT) loadcb(context, "vkGetPipelinePropertiesEXT");
+#endif // defined(VK_EXT_pipeline_properties)
 #if defined(VK_EXT_private_data)
     vkCreatePrivateDataSlotEXT = (PFN_vkCreatePrivateDataSlotEXT) loadcb(context, "vkCreatePrivateDataSlotEXT");
     vkDestroyPrivateDataSlotEXT = (PFN_vkDestroyPrivateDataSlotEXT) loadcb(context, "vkDestroyPrivateDataSlotEXT");
@@ -512,10 +595,35 @@ static void loadDeviceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(void
     vkGetValidationCacheDataEXT = (PFN_vkGetValidationCacheDataEXT) loadcb(context, "vkGetValidationCacheDataEXT");
     vkMergeValidationCachesEXT = (PFN_vkMergeValidationCachesEXT) loadcb(context, "vkMergeValidationCachesEXT");
 #endif // defined(VK_EXT_validation_cache)
+#if defined(VK_EXT_vertex_input_dynamic_state)
+    vkCmdSetVertexInputEXT = (PFN_vkCmdSetVertexInputEXT) loadcb(context, "vkCmdSetVertexInputEXT");
+#endif // defined(VK_EXT_vertex_input_dynamic_state)
+#if defined(VK_FUCHSIA_buffer_collection)
+    vkCreateBufferCollectionFUCHSIA = (PFN_vkCreateBufferCollectionFUCHSIA) loadcb(context, "vkCreateBufferCollectionFUCHSIA");
+    vkDestroyBufferCollectionFUCHSIA = (PFN_vkDestroyBufferCollectionFUCHSIA) loadcb(context, "vkDestroyBufferCollectionFUCHSIA");
+    vkGetBufferCollectionPropertiesFUCHSIA = (PFN_vkGetBufferCollectionPropertiesFUCHSIA) loadcb(context, "vkGetBufferCollectionPropertiesFUCHSIA");
+    vkSetBufferCollectionBufferConstraintsFUCHSIA = (PFN_vkSetBufferCollectionBufferConstraintsFUCHSIA) loadcb(context, "vkSetBufferCollectionBufferConstraintsFUCHSIA");
+    vkSetBufferCollectionImageConstraintsFUCHSIA = (PFN_vkSetBufferCollectionImageConstraintsFUCHSIA) loadcb(context, "vkSetBufferCollectionImageConstraintsFUCHSIA");
+#endif // defined(VK_FUCHSIA_buffer_collection)
+#if defined(VK_FUCHSIA_external_memory)
+    vkGetMemoryZirconHandleFUCHSIA = (PFN_vkGetMemoryZirconHandleFUCHSIA) loadcb(context, "vkGetMemoryZirconHandleFUCHSIA");
+    vkGetMemoryZirconHandlePropertiesFUCHSIA = (PFN_vkGetMemoryZirconHandlePropertiesFUCHSIA) loadcb(context, "vkGetMemoryZirconHandlePropertiesFUCHSIA");
+#endif // defined(VK_FUCHSIA_external_memory)
+#if defined(VK_FUCHSIA_external_semaphore)
+    vkGetSemaphoreZirconHandleFUCHSIA = (PFN_vkGetSemaphoreZirconHandleFUCHSIA) loadcb(context, "vkGetSemaphoreZirconHandleFUCHSIA");
+    vkImportSemaphoreZirconHandleFUCHSIA = (PFN_vkImportSemaphoreZirconHandleFUCHSIA) loadcb(context, "vkImportSemaphoreZirconHandleFUCHSIA");
+#endif // defined(VK_FUCHSIA_external_semaphore)
 #if defined(VK_GOOGLE_display_timing)
     vkGetPastPresentationTimingGOOGLE = (PFN_vkGetPastPresentationTimingGOOGLE) loadcb(context, "vkGetPastPresentationTimingGOOGLE");
     vkGetRefreshCycleDurationGOOGLE = (PFN_vkGetRefreshCycleDurationGOOGLE) loadcb(context, "vkGetRefreshCycleDurationGOOGLE");
 #endif // defined(VK_GOOGLE_display_timing)
+#if defined(VK_HUAWEI_invocation_mask)
+    vkCmdBindInvocationMaskHUAWEI = (PFN_vkCmdBindInvocationMaskHUAWEI) loadcb(context, "vkCmdBindInvocationMaskHUAWEI");
+#endif // defined(VK_HUAWEI_invocation_mask)
+#if defined(VK_HUAWEI_subpass_shading)
+    vkCmdSubpassShadingHUAWEI = (PFN_vkCmdSubpassShadingHUAWEI) loadcb(context, "vkCmdSubpassShadingHUAWEI");
+    vkGetDeviceSubpassShadingMaxWorkgroupSizeHUAWEI = (PFN_vkGetDeviceSubpassShadingMaxWorkgroupSizeHUAWEI) loadcb(context, "vkGetDeviceSubpassShadingMaxWorkgroupSizeHUAWEI");
+#endif // defined(VK_HUAWEI_subpass_shading)
 #if defined(VK_INTEL_performance_query)
     vkAcquirePerformanceConfigurationINTEL = (PFN_vkAcquirePerformanceConfigurationINTEL) loadcb(context, "vkAcquirePerformanceConfigurationINTEL");
     vkCmdSetPerformanceMarkerINTEL = (PFN_vkCmdSetPerformanceMarkerINTEL) loadcb(context, "vkCmdSetPerformanceMarkerINTEL");
@@ -527,6 +635,24 @@ static void loadDeviceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(void
     vkReleasePerformanceConfigurationINTEL = (PFN_vkReleasePerformanceConfigurationINTEL) loadcb(context, "vkReleasePerformanceConfigurationINTEL");
     vkUninitializePerformanceApiINTEL = (PFN_vkUninitializePerformanceApiINTEL) loadcb(context, "vkUninitializePerformanceApiINTEL");
 #endif // defined(VK_INTEL_performance_query)
+#if defined(VK_KHR_acceleration_structure)
+    vkBuildAccelerationStructuresKHR = (PFN_vkBuildAccelerationStructuresKHR) loadcb(context, "vkBuildAccelerationStructuresKHR");
+    vkCmdBuildAccelerationStructuresIndirectKHR = (PFN_vkCmdBuildAccelerationStructuresIndirectKHR) loadcb(context, "vkCmdBuildAccelerationStructuresIndirectKHR");
+    vkCmdBuildAccelerationStructuresKHR = (PFN_vkCmdBuildAccelerationStructuresKHR) loadcb(context, "vkCmdBuildAccelerationStructuresKHR");
+    vkCmdCopyAccelerationStructureKHR = (PFN_vkCmdCopyAccelerationStructureKHR) loadcb(context, "vkCmdCopyAccelerationStructureKHR");
+    vkCmdCopyAccelerationStructureToMemoryKHR = (PFN_vkCmdCopyAccelerationStructureToMemoryKHR) loadcb(context, "vkCmdCopyAccelerationStructureToMemoryKHR");
+    vkCmdCopyMemoryToAccelerationStructureKHR = (PFN_vkCmdCopyMemoryToAccelerationStructureKHR) loadcb(context, "vkCmdCopyMemoryToAccelerationStructureKHR");
+    vkCmdWriteAccelerationStructuresPropertiesKHR = (PFN_vkCmdWriteAccelerationStructuresPropertiesKHR) loadcb(context, "vkCmdWriteAccelerationStructuresPropertiesKHR");
+    vkCopyAccelerationStructureKHR = (PFN_vkCopyAccelerationStructureKHR) loadcb(context, "vkCopyAccelerationStructureKHR");
+    vkCopyAccelerationStructureToMemoryKHR = (PFN_vkCopyAccelerationStructureToMemoryKHR) loadcb(context, "vkCopyAccelerationStructureToMemoryKHR");
+    vkCopyMemoryToAccelerationStructureKHR = (PFN_vkCopyMemoryToAccelerationStructureKHR) loadcb(context, "vkCopyMemoryToAccelerationStructureKHR");
+    vkCreateAccelerationStructureKHR = (PFN_vkCreateAccelerationStructureKHR) loadcb(context, "vkCreateAccelerationStructureKHR");
+    vkDestroyAccelerationStructureKHR = (PFN_vkDestroyAccelerationStructureKHR) loadcb(context, "vkDestroyAccelerationStructureKHR");
+    vkGetAccelerationStructureBuildSizesKHR = (PFN_vkGetAccelerationStructureBuildSizesKHR) loadcb(context, "vkGetAccelerationStructureBuildSizesKHR");
+    vkGetAccelerationStructureDeviceAddressKHR = (PFN_vkGetAccelerationStructureDeviceAddressKHR) loadcb(context, "vkGetAccelerationStructureDeviceAddressKHR");
+    vkGetDeviceAccelerationStructureCompatibilityKHR = (PFN_vkGetDeviceAccelerationStructureCompatibilityKHR) loadcb(context, "vkGetDeviceAccelerationStructureCompatibilityKHR");
+    vkWriteAccelerationStructuresPropertiesKHR = (PFN_vkWriteAccelerationStructuresPropertiesKHR) loadcb(context, "vkWriteAccelerationStructuresPropertiesKHR");
+#endif // defined(VK_KHR_acceleration_structure)
 #if defined(VK_KHR_bind_memory2)
     vkBindBufferMemory2KHR = (PFN_vkBindBufferMemory2KHR) loadcb(context, "vkBindBufferMemory2KHR");
     vkBindImageMemory2KHR = (PFN_vkBindImageMemory2KHR) loadcb(context, "vkBindImageMemory2KHR");
@@ -536,6 +662,14 @@ static void loadDeviceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(void
     vkGetBufferOpaqueCaptureAddressKHR = (PFN_vkGetBufferOpaqueCaptureAddressKHR) loadcb(context, "vkGetBufferOpaqueCaptureAddressKHR");
     vkGetDeviceMemoryOpaqueCaptureAddressKHR = (PFN_vkGetDeviceMemoryOpaqueCaptureAddressKHR) loadcb(context, "vkGetDeviceMemoryOpaqueCaptureAddressKHR");
 #endif // defined(VK_KHR_buffer_device_address)
+#if defined(VK_KHR_copy_commands2)
+    vkCmdBlitImage2KHR = (PFN_vkCmdBlitImage2KHR) loadcb(context, "vkCmdBlitImage2KHR");
+    vkCmdCopyBuffer2KHR = (PFN_vkCmdCopyBuffer2KHR) loadcb(context, "vkCmdCopyBuffer2KHR");
+    vkCmdCopyBufferToImage2KHR = (PFN_vkCmdCopyBufferToImage2KHR) loadcb(context, "vkCmdCopyBufferToImage2KHR");
+    vkCmdCopyImage2KHR = (PFN_vkCmdCopyImage2KHR) loadcb(context, "vkCmdCopyImage2KHR");
+    vkCmdCopyImageToBuffer2KHR = (PFN_vkCmdCopyImageToBuffer2KHR) loadcb(context, "vkCmdCopyImageToBuffer2KHR");
+    vkCmdResolveImage2KHR = (PFN_vkCmdResolveImage2KHR) loadcb(context, "vkCmdResolveImage2KHR");
+#endif // defined(VK_KHR_copy_commands2)
 #if defined(VK_KHR_create_renderpass2)
     vkCmdBeginRenderPass2KHR = (PFN_vkCmdBeginRenderPass2KHR) loadcb(context, "vkCmdBeginRenderPass2KHR");
     vkCmdEndRenderPass2KHR = (PFN_vkCmdEndRenderPass2KHR) loadcb(context, "vkCmdEndRenderPass2KHR");
@@ -566,6 +700,10 @@ static void loadDeviceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(void
     vkCmdDrawIndexedIndirectCountKHR = (PFN_vkCmdDrawIndexedIndirectCountKHR) loadcb(context, "vkCmdDrawIndexedIndirectCountKHR");
     vkCmdDrawIndirectCountKHR = (PFN_vkCmdDrawIndirectCountKHR) loadcb(context, "vkCmdDrawIndirectCountKHR");
 #endif // defined(VK_KHR_draw_indirect_count)
+#if defined(VK_KHR_dynamic_rendering)
+    vkCmdBeginRenderingKHR = (PFN_vkCmdBeginRenderingKHR) loadcb(context, "vkCmdBeginRenderingKHR");
+    vkCmdEndRenderingKHR = (PFN_vkCmdEndRenderingKHR) loadcb(context, "vkCmdEndRenderingKHR");
+#endif // defined(VK_KHR_dynamic_rendering)
 #if defined(VK_KHR_external_fence_fd)
     vkGetFenceFdKHR = (PFN_vkGetFenceFdKHR) loadcb(context, "vkGetFenceFdKHR");
     vkImportFenceFdKHR = (PFN_vkImportFenceFdKHR) loadcb(context, "vkImportFenceFdKHR");
@@ -590,6 +728,9 @@ static void loadDeviceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(void
     vkGetSemaphoreWin32HandleKHR = (PFN_vkGetSemaphoreWin32HandleKHR) loadcb(context, "vkGetSemaphoreWin32HandleKHR");
     vkImportSemaphoreWin32HandleKHR = (PFN_vkImportSemaphoreWin32HandleKHR) loadcb(context, "vkImportSemaphoreWin32HandleKHR");
 #endif // defined(VK_KHR_external_semaphore_win32)
+#if defined(VK_KHR_fragment_shading_rate)
+    vkCmdSetFragmentShadingRateKHR = (PFN_vkCmdSetFragmentShadingRateKHR) loadcb(context, "vkCmdSetFragmentShadingRateKHR");
+#endif // defined(VK_KHR_fragment_shading_rate)
 #if defined(VK_KHR_get_memory_requirements2)
     vkGetBufferMemoryRequirements2KHR = (PFN_vkGetBufferMemoryRequirements2KHR) loadcb(context, "vkGetBufferMemoryRequirements2KHR");
     vkGetImageMemoryRequirements2KHR = (PFN_vkGetImageMemoryRequirements2KHR) loadcb(context, "vkGetImageMemoryRequirements2KHR");
@@ -601,6 +742,11 @@ static void loadDeviceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(void
 #if defined(VK_KHR_maintenance3)
     vkGetDescriptorSetLayoutSupportKHR = (PFN_vkGetDescriptorSetLayoutSupportKHR) loadcb(context, "vkGetDescriptorSetLayoutSupportKHR");
 #endif // defined(VK_KHR_maintenance3)
+#if defined(VK_KHR_maintenance4)
+    vkGetDeviceBufferMemoryRequirementsKHR = (PFN_vkGetDeviceBufferMemoryRequirementsKHR) loadcb(context, "vkGetDeviceBufferMemoryRequirementsKHR");
+    vkGetDeviceImageMemoryRequirementsKHR = (PFN_vkGetDeviceImageMemoryRequirementsKHR) loadcb(context, "vkGetDeviceImageMemoryRequirementsKHR");
+    vkGetDeviceImageSparseMemoryRequirementsKHR = (PFN_vkGetDeviceImageSparseMemoryRequirementsKHR) loadcb(context, "vkGetDeviceImageSparseMemoryRequirementsKHR");
+#endif // defined(VK_KHR_maintenance4)
 #if defined(VK_KHR_performance_query)
     vkAcquireProfilingLockKHR = (PFN_vkAcquireProfilingLockKHR) loadcb(context, "vkAcquireProfilingLockKHR");
     vkReleaseProfilingLockKHR = (PFN_vkReleaseProfilingLockKHR) loadcb(context, "vkReleaseProfilingLockKHR");
@@ -610,33 +756,24 @@ static void loadDeviceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(void
     vkGetPipelineExecutablePropertiesKHR = (PFN_vkGetPipelineExecutablePropertiesKHR) loadcb(context, "vkGetPipelineExecutablePropertiesKHR");
     vkGetPipelineExecutableStatisticsKHR = (PFN_vkGetPipelineExecutableStatisticsKHR) loadcb(context, "vkGetPipelineExecutableStatisticsKHR");
 #endif // defined(VK_KHR_pipeline_executable_properties)
+#if defined(VK_KHR_present_wait)
+    vkWaitForPresentKHR = (PFN_vkWaitForPresentKHR) loadcb(context, "vkWaitForPresentKHR");
+#endif // defined(VK_KHR_present_wait)
 #if defined(VK_KHR_push_descriptor)
     vkCmdPushDescriptorSetKHR = (PFN_vkCmdPushDescriptorSetKHR) loadcb(context, "vkCmdPushDescriptorSetKHR");
 #endif // defined(VK_KHR_push_descriptor)
-#if defined(VK_KHR_ray_tracing)
-    vkBindAccelerationStructureMemoryKHR = (PFN_vkBindAccelerationStructureMemoryKHR) loadcb(context, "vkBindAccelerationStructureMemoryKHR");
-    vkBuildAccelerationStructureKHR = (PFN_vkBuildAccelerationStructureKHR) loadcb(context, "vkBuildAccelerationStructureKHR");
-    vkCmdBuildAccelerationStructureIndirectKHR = (PFN_vkCmdBuildAccelerationStructureIndirectKHR) loadcb(context, "vkCmdBuildAccelerationStructureIndirectKHR");
-    vkCmdBuildAccelerationStructureKHR = (PFN_vkCmdBuildAccelerationStructureKHR) loadcb(context, "vkCmdBuildAccelerationStructureKHR");
-    vkCmdCopyAccelerationStructureKHR = (PFN_vkCmdCopyAccelerationStructureKHR) loadcb(context, "vkCmdCopyAccelerationStructureKHR");
-    vkCmdCopyAccelerationStructureToMemoryKHR = (PFN_vkCmdCopyAccelerationStructureToMemoryKHR) loadcb(context, "vkCmdCopyAccelerationStructureToMemoryKHR");
-    vkCmdCopyMemoryToAccelerationStructureKHR = (PFN_vkCmdCopyMemoryToAccelerationStructureKHR) loadcb(context, "vkCmdCopyMemoryToAccelerationStructureKHR");
+#if (defined(VK_KHR_ray_tracing_maintenance1) && defined(VK_KHR_ray_tracing_pipeline))
+    vkCmdTraceRaysIndirect2KHR = (PFN_vkCmdTraceRaysIndirect2KHR) loadcb(context, "vkCmdTraceRaysIndirect2KHR");
+#endif // (defined(VK_KHR_ray_tracing_maintenance1) && defined(VK_KHR_ray_tracing_pipeline))
+#if defined(VK_KHR_ray_tracing_pipeline)
+    vkCmdSetRayTracingPipelineStackSizeKHR = (PFN_vkCmdSetRayTracingPipelineStackSizeKHR) loadcb(context, "vkCmdSetRayTracingPipelineStackSizeKHR");
     vkCmdTraceRaysIndirectKHR = (PFN_vkCmdTraceRaysIndirectKHR) loadcb(context, "vkCmdTraceRaysIndirectKHR");
     vkCmdTraceRaysKHR = (PFN_vkCmdTraceRaysKHR) loadcb(context, "vkCmdTraceRaysKHR");
-    vkCmdWriteAccelerationStructuresPropertiesKHR = (PFN_vkCmdWriteAccelerationStructuresPropertiesKHR) loadcb(context, "vkCmdWriteAccelerationStructuresPropertiesKHR");
-    vkCopyAccelerationStructureKHR = (PFN_vkCopyAccelerationStructureKHR) loadcb(context, "vkCopyAccelerationStructureKHR");
-    vkCopyAccelerationStructureToMemoryKHR = (PFN_vkCopyAccelerationStructureToMemoryKHR) loadcb(context, "vkCopyAccelerationStructureToMemoryKHR");
-    vkCopyMemoryToAccelerationStructureKHR = (PFN_vkCopyMemoryToAccelerationStructureKHR) loadcb(context, "vkCopyMemoryToAccelerationStructureKHR");
-    vkCreateAccelerationStructureKHR = (PFN_vkCreateAccelerationStructureKHR) loadcb(context, "vkCreateAccelerationStructureKHR");
     vkCreateRayTracingPipelinesKHR = (PFN_vkCreateRayTracingPipelinesKHR) loadcb(context, "vkCreateRayTracingPipelinesKHR");
-    vkDestroyAccelerationStructureKHR = (PFN_vkDestroyAccelerationStructureKHR) loadcb(context, "vkDestroyAccelerationStructureKHR");
-    vkGetAccelerationStructureDeviceAddressKHR = (PFN_vkGetAccelerationStructureDeviceAddressKHR) loadcb(context, "vkGetAccelerationStructureDeviceAddressKHR");
-    vkGetAccelerationStructureMemoryRequirementsKHR = (PFN_vkGetAccelerationStructureMemoryRequirementsKHR) loadcb(context, "vkGetAccelerationStructureMemoryRequirementsKHR");
-    vkGetDeviceAccelerationStructureCompatibilityKHR = (PFN_vkGetDeviceAccelerationStructureCompatibilityKHR) loadcb(context, "vkGetDeviceAccelerationStructureCompatibilityKHR");
     vkGetRayTracingCaptureReplayShaderGroupHandlesKHR = (PFN_vkGetRayTracingCaptureReplayShaderGroupHandlesKHR) loadcb(context, "vkGetRayTracingCaptureReplayShaderGroupHandlesKHR");
     vkGetRayTracingShaderGroupHandlesKHR = (PFN_vkGetRayTracingShaderGroupHandlesKHR) loadcb(context, "vkGetRayTracingShaderGroupHandlesKHR");
-    vkWriteAccelerationStructuresPropertiesKHR = (PFN_vkWriteAccelerationStructuresPropertiesKHR) loadcb(context, "vkWriteAccelerationStructuresPropertiesKHR");
-#endif // defined(VK_KHR_ray_tracing)
+    vkGetRayTracingShaderGroupStackSizeKHR = (PFN_vkGetRayTracingShaderGroupStackSizeKHR) loadcb(context, "vkGetRayTracingShaderGroupStackSizeKHR");
+#endif // defined(VK_KHR_ray_tracing_pipeline)
 #if defined(VK_KHR_sampler_ycbcr_conversion)
     vkCreateSamplerYcbcrConversionKHR = (PFN_vkCreateSamplerYcbcrConversionKHR) loadcb(context, "vkCreateSamplerYcbcrConversionKHR");
     vkDestroySamplerYcbcrConversionKHR = (PFN_vkDestroySamplerYcbcrConversionKHR) loadcb(context, "vkDestroySamplerYcbcrConversionKHR");
@@ -651,11 +788,50 @@ static void loadDeviceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(void
     vkGetSwapchainImagesKHR = (PFN_vkGetSwapchainImagesKHR) loadcb(context, "vkGetSwapchainImagesKHR");
     vkQueuePresentKHR = (PFN_vkQueuePresentKHR) loadcb(context, "vkQueuePresentKHR");
 #endif // defined(VK_KHR_swapchain)
+#if defined(VK_KHR_synchronization2)
+    vkCmdPipelineBarrier2KHR = (PFN_vkCmdPipelineBarrier2KHR) loadcb(context, "vkCmdPipelineBarrier2KHR");
+    vkCmdResetEvent2KHR = (PFN_vkCmdResetEvent2KHR) loadcb(context, "vkCmdResetEvent2KHR");
+    vkCmdSetEvent2KHR = (PFN_vkCmdSetEvent2KHR) loadcb(context, "vkCmdSetEvent2KHR");
+    vkCmdWaitEvents2KHR = (PFN_vkCmdWaitEvents2KHR) loadcb(context, "vkCmdWaitEvents2KHR");
+    vkCmdWriteTimestamp2KHR = (PFN_vkCmdWriteTimestamp2KHR) loadcb(context, "vkCmdWriteTimestamp2KHR");
+    vkQueueSubmit2KHR = (PFN_vkQueueSubmit2KHR) loadcb(context, "vkQueueSubmit2KHR");
+#endif // defined(VK_KHR_synchronization2)
+#if (defined(VK_KHR_synchronization2) && defined(VK_AMD_buffer_marker))
+    vkCmdWriteBufferMarker2AMD = (PFN_vkCmdWriteBufferMarker2AMD) loadcb(context, "vkCmdWriteBufferMarker2AMD");
+#endif // (defined(VK_KHR_synchronization2) && defined(VK_AMD_buffer_marker))
+#if (defined(VK_KHR_synchronization2) && defined(VK_NV_device_diagnostic_checkpoints))
+    vkGetQueueCheckpointData2NV = (PFN_vkGetQueueCheckpointData2NV) loadcb(context, "vkGetQueueCheckpointData2NV");
+#endif // (defined(VK_KHR_synchronization2) && defined(VK_NV_device_diagnostic_checkpoints))
 #if defined(VK_KHR_timeline_semaphore)
     vkGetSemaphoreCounterValueKHR = (PFN_vkGetSemaphoreCounterValueKHR) loadcb(context, "vkGetSemaphoreCounterValueKHR");
     vkSignalSemaphoreKHR = (PFN_vkSignalSemaphoreKHR) loadcb(context, "vkSignalSemaphoreKHR");
     vkWaitSemaphoresKHR = (PFN_vkWaitSemaphoresKHR) loadcb(context, "vkWaitSemaphoresKHR");
 #endif // defined(VK_KHR_timeline_semaphore)
+#if defined(VK_KHR_video_decode_queue)
+    vkCmdDecodeVideoKHR = (PFN_vkCmdDecodeVideoKHR) loadcb(context, "vkCmdDecodeVideoKHR");
+#endif // defined(VK_KHR_video_decode_queue)
+#if defined(VK_KHR_video_encode_queue)
+    vkCmdEncodeVideoKHR = (PFN_vkCmdEncodeVideoKHR) loadcb(context, "vkCmdEncodeVideoKHR");
+#endif // defined(VK_KHR_video_encode_queue)
+#if defined(VK_KHR_video_queue)
+    vkBindVideoSessionMemoryKHR = (PFN_vkBindVideoSessionMemoryKHR) loadcb(context, "vkBindVideoSessionMemoryKHR");
+    vkCmdBeginVideoCodingKHR = (PFN_vkCmdBeginVideoCodingKHR) loadcb(context, "vkCmdBeginVideoCodingKHR");
+    vkCmdControlVideoCodingKHR = (PFN_vkCmdControlVideoCodingKHR) loadcb(context, "vkCmdControlVideoCodingKHR");
+    vkCmdEndVideoCodingKHR = (PFN_vkCmdEndVideoCodingKHR) loadcb(context, "vkCmdEndVideoCodingKHR");
+    vkCreateVideoSessionKHR = (PFN_vkCreateVideoSessionKHR) loadcb(context, "vkCreateVideoSessionKHR");
+    vkCreateVideoSessionParametersKHR = (PFN_vkCreateVideoSessionParametersKHR) loadcb(context, "vkCreateVideoSessionParametersKHR");
+    vkDestroyVideoSessionKHR = (PFN_vkDestroyVideoSessionKHR) loadcb(context, "vkDestroyVideoSessionKHR");
+    vkDestroyVideoSessionParametersKHR = (PFN_vkDestroyVideoSessionParametersKHR) loadcb(context, "vkDestroyVideoSessionParametersKHR");
+    vkGetVideoSessionMemoryRequirementsKHR = (PFN_vkGetVideoSessionMemoryRequirementsKHR) loadcb(context, "vkGetVideoSessionMemoryRequirementsKHR");
+    vkUpdateVideoSessionParametersKHR = (PFN_vkUpdateVideoSessionParametersKHR) loadcb(context, "vkUpdateVideoSessionParametersKHR");
+#endif // defined(VK_KHR_video_queue)
+#if defined(VK_NVX_binary_import)
+    vkCmdCuLaunchKernelNVX = (PFN_vkCmdCuLaunchKernelNVX) loadcb(context, "vkCmdCuLaunchKernelNVX");
+    vkCreateCuFunctionNVX = (PFN_vkCreateCuFunctionNVX) loadcb(context, "vkCreateCuFunctionNVX");
+    vkCreateCuModuleNVX = (PFN_vkCreateCuModuleNVX) loadcb(context, "vkCreateCuModuleNVX");
+    vkDestroyCuFunctionNVX = (PFN_vkDestroyCuFunctionNVX) loadcb(context, "vkDestroyCuFunctionNVX");
+    vkDestroyCuModuleNVX = (PFN_vkDestroyCuModuleNVX) loadcb(context, "vkDestroyCuModuleNVX");
+#endif // defined(VK_NVX_binary_import)
 #if defined(VK_NVX_image_view_handle)
     vkGetImageViewAddressNVX = (PFN_vkGetImageViewAddressNVX) loadcb(context, "vkGetImageViewAddressNVX");
     vkGetImageViewHandleNVX = (PFN_vkGetImageViewHandleNVX) loadcb(context, "vkGetImageViewHandleNVX");
@@ -675,9 +851,15 @@ static void loadDeviceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(void
     vkDestroyIndirectCommandsLayoutNV = (PFN_vkDestroyIndirectCommandsLayoutNV) loadcb(context, "vkDestroyIndirectCommandsLayoutNV");
     vkGetGeneratedCommandsMemoryRequirementsNV = (PFN_vkGetGeneratedCommandsMemoryRequirementsNV) loadcb(context, "vkGetGeneratedCommandsMemoryRequirementsNV");
 #endif // defined(VK_NV_device_generated_commands)
+#if defined(VK_NV_external_memory_rdma)
+    vkGetMemoryRemoteAddressNV = (PFN_vkGetMemoryRemoteAddressNV) loadcb(context, "vkGetMemoryRemoteAddressNV");
+#endif // defined(VK_NV_external_memory_rdma)
 #if defined(VK_NV_external_memory_win32)
     vkGetMemoryWin32HandleNV = (PFN_vkGetMemoryWin32HandleNV) loadcb(context, "vkGetMemoryWin32HandleNV");
 #endif // defined(VK_NV_external_memory_win32)
+#if defined(VK_NV_fragment_shading_rate_enums)
+    vkCmdSetFragmentShadingRateEnumNV = (PFN_vkCmdSetFragmentShadingRateEnumNV) loadcb(context, "vkCmdSetFragmentShadingRateEnumNV");
+#endif // defined(VK_NV_fragment_shading_rate_enums)
 #if defined(VK_NV_mesh_shader)
     vkCmdDrawMeshTasksIndirectCountNV = (PFN_vkCmdDrawMeshTasksIndirectCountNV) loadcb(context, "vkCmdDrawMeshTasksIndirectCountNV");
     vkCmdDrawMeshTasksIndirectNV = (PFN_vkCmdDrawMeshTasksIndirectNV) loadcb(context, "vkCmdDrawMeshTasksIndirectNV");
@@ -705,6 +887,10 @@ static void loadDeviceFunctions(void* context, PFN_vkVoidFunction (*loadcb)(void
     vkCmdSetCoarseSampleOrderNV = (PFN_vkCmdSetCoarseSampleOrderNV) loadcb(context, "vkCmdSetCoarseSampleOrderNV");
     vkCmdSetViewportShadingRatePaletteNV = (PFN_vkCmdSetViewportShadingRatePaletteNV) loadcb(context, "vkCmdSetViewportShadingRatePaletteNV");
 #endif // defined(VK_NV_shading_rate_image)
+#if defined(VK_VALVE_descriptor_set_host_mapping)
+    vkGetDescriptorSetHostMappingVALVE = (PFN_vkGetDescriptorSetHostMappingVALVE) loadcb(context, "vkGetDescriptorSetHostMappingVALVE");
+    vkGetDescriptorSetLayoutHostMappingInfoVALVE = (PFN_vkGetDescriptorSetLayoutHostMappingInfoVALVE) loadcb(context, "vkGetDescriptorSetLayoutHostMappingInfoVALVE");
+#endif // defined(VK_VALVE_descriptor_set_host_mapping)
 #if (defined(VK_EXT_full_screen_exclusive) && defined(VK_KHR_device_group)) || (defined(VK_EXT_full_screen_exclusive) && defined(VK_VERSION_1_1))
     vkGetDeviceGroupSurfacePresentModes2EXT = (PFN_vkGetDeviceGroupSurfacePresentModes2EXT) loadcb(context, "vkGetDeviceGroupSurfacePresentModes2EXT");
 #endif // (defined(VK_EXT_full_screen_exclusive) && defined(VK_KHR_device_group)) || (defined(VK_EXT_full_screen_exclusive) && defined(VK_VERSION_1_1))
@@ -904,6 +1090,45 @@ PFN_vkResetQueryPool vkResetQueryPool;
 PFN_vkSignalSemaphore vkSignalSemaphore;
 PFN_vkWaitSemaphores vkWaitSemaphores;
 #endif // defined(VK_VERSION_1_2)
+#if defined(VK_VERSION_1_3)
+PFN_vkCmdBeginRendering vkCmdBeginRendering;
+PFN_vkCmdBindVertexBuffers2 vkCmdBindVertexBuffers2;
+PFN_vkCmdBlitImage2 vkCmdBlitImage2;
+PFN_vkCmdCopyBuffer2 vkCmdCopyBuffer2;
+PFN_vkCmdCopyBufferToImage2 vkCmdCopyBufferToImage2;
+PFN_vkCmdCopyImage2 vkCmdCopyImage2;
+PFN_vkCmdCopyImageToBuffer2 vkCmdCopyImageToBuffer2;
+PFN_vkCmdEndRendering vkCmdEndRendering;
+PFN_vkCmdPipelineBarrier2 vkCmdPipelineBarrier2;
+PFN_vkCmdResetEvent2 vkCmdResetEvent2;
+PFN_vkCmdResolveImage2 vkCmdResolveImage2;
+PFN_vkCmdSetCullMode vkCmdSetCullMode;
+PFN_vkCmdSetDepthBiasEnable vkCmdSetDepthBiasEnable;
+PFN_vkCmdSetDepthBoundsTestEnable vkCmdSetDepthBoundsTestEnable;
+PFN_vkCmdSetDepthCompareOp vkCmdSetDepthCompareOp;
+PFN_vkCmdSetDepthTestEnable vkCmdSetDepthTestEnable;
+PFN_vkCmdSetDepthWriteEnable vkCmdSetDepthWriteEnable;
+PFN_vkCmdSetEvent2 vkCmdSetEvent2;
+PFN_vkCmdSetFrontFace vkCmdSetFrontFace;
+PFN_vkCmdSetPrimitiveRestartEnable vkCmdSetPrimitiveRestartEnable;
+PFN_vkCmdSetPrimitiveTopology vkCmdSetPrimitiveTopology;
+PFN_vkCmdSetRasterizerDiscardEnable vkCmdSetRasterizerDiscardEnable;
+PFN_vkCmdSetScissorWithCount vkCmdSetScissorWithCount;
+PFN_vkCmdSetStencilOp vkCmdSetStencilOp;
+PFN_vkCmdSetStencilTestEnable vkCmdSetStencilTestEnable;
+PFN_vkCmdSetViewportWithCount vkCmdSetViewportWithCount;
+PFN_vkCmdWaitEvents2 vkCmdWaitEvents2;
+PFN_vkCmdWriteTimestamp2 vkCmdWriteTimestamp2;
+PFN_vkCreatePrivateDataSlot vkCreatePrivateDataSlot;
+PFN_vkDestroyPrivateDataSlot vkDestroyPrivateDataSlot;
+PFN_vkGetDeviceBufferMemoryRequirements vkGetDeviceBufferMemoryRequirements;
+PFN_vkGetDeviceImageMemoryRequirements vkGetDeviceImageMemoryRequirements;
+PFN_vkGetDeviceImageSparseMemoryRequirements vkGetDeviceImageSparseMemoryRequirements;
+PFN_vkGetPhysicalDeviceToolProperties vkGetPhysicalDeviceToolProperties;
+PFN_vkGetPrivateData vkGetPrivateData;
+PFN_vkQueueSubmit2 vkQueueSubmit2;
+PFN_vkSetPrivateData vkSetPrivateData;
+#endif // defined(VK_VERSION_1_3)
 #if defined(VK_AMD_buffer_marker)
 PFN_vkCmdWriteBufferMarkerAMD vkCmdWriteBufferMarkerAMD;
 #endif // defined(VK_AMD_buffer_marker)
@@ -927,6 +1152,10 @@ PFN_vkGetSwapchainGrallocUsage2ANDROID vkGetSwapchainGrallocUsage2ANDROID;
 PFN_vkGetSwapchainGrallocUsageANDROID vkGetSwapchainGrallocUsageANDROID;
 PFN_vkQueueSignalReleaseImageANDROID vkQueueSignalReleaseImageANDROID;
 #endif // defined(VK_ANDROID_native_buffer)
+#if defined(VK_EXT_acquire_drm_display)
+PFN_vkAcquireDrmDisplayEXT vkAcquireDrmDisplayEXT;
+PFN_vkGetDrmDisplayEXT vkGetDrmDisplayEXT;
+#endif // defined(VK_EXT_acquire_drm_display)
 #if defined(VK_EXT_acquire_xlib_display)
 PFN_vkAcquireXlibDisplayEXT vkAcquireXlibDisplayEXT;
 PFN_vkGetRandROutputDisplayEXT vkGetRandROutputDisplayEXT;
@@ -938,6 +1167,9 @@ PFN_vkGetBufferDeviceAddressEXT vkGetBufferDeviceAddressEXT;
 PFN_vkGetCalibratedTimestampsEXT vkGetCalibratedTimestampsEXT;
 PFN_vkGetPhysicalDeviceCalibrateableTimeDomainsEXT vkGetPhysicalDeviceCalibrateableTimeDomainsEXT;
 #endif // defined(VK_EXT_calibrated_timestamps)
+#if defined(VK_EXT_color_write_enable)
+PFN_vkCmdSetColorWriteEnableEXT vkCmdSetColorWriteEnableEXT;
+#endif // defined(VK_EXT_color_write_enable)
 #if defined(VK_EXT_conditional_rendering)
 PFN_vkCmdBeginConditionalRenderingEXT vkCmdBeginConditionalRenderingEXT;
 PFN_vkCmdEndConditionalRenderingEXT vkCmdEndConditionalRenderingEXT;
@@ -1000,6 +1232,13 @@ PFN_vkCmdSetStencilOpEXT vkCmdSetStencilOpEXT;
 PFN_vkCmdSetStencilTestEnableEXT vkCmdSetStencilTestEnableEXT;
 PFN_vkCmdSetViewportWithCountEXT vkCmdSetViewportWithCountEXT;
 #endif // defined(VK_EXT_extended_dynamic_state)
+#if defined(VK_EXT_extended_dynamic_state2)
+PFN_vkCmdSetDepthBiasEnableEXT vkCmdSetDepthBiasEnableEXT;
+PFN_vkCmdSetLogicOpEXT vkCmdSetLogicOpEXT;
+PFN_vkCmdSetPatchControlPointsEXT vkCmdSetPatchControlPointsEXT;
+PFN_vkCmdSetPrimitiveRestartEnableEXT vkCmdSetPrimitiveRestartEnableEXT;
+PFN_vkCmdSetRasterizerDiscardEnableEXT vkCmdSetRasterizerDiscardEnableEXT;
+#endif // defined(VK_EXT_extended_dynamic_state2)
 #if defined(VK_EXT_external_memory_host)
 PFN_vkGetMemoryHostPointerPropertiesEXT vkGetMemoryHostPointerPropertiesEXT;
 #endif // defined(VK_EXT_external_memory_host)
@@ -1017,15 +1256,31 @@ PFN_vkCreateHeadlessSurfaceEXT vkCreateHeadlessSurfaceEXT;
 #if defined(VK_EXT_host_query_reset)
 PFN_vkResetQueryPoolEXT vkResetQueryPoolEXT;
 #endif // defined(VK_EXT_host_query_reset)
+#if defined(VK_EXT_image_compression_control)
+PFN_vkGetImageSubresourceLayout2EXT vkGetImageSubresourceLayout2EXT;
+#endif // defined(VK_EXT_image_compression_control)
 #if defined(VK_EXT_image_drm_format_modifier)
 PFN_vkGetImageDrmFormatModifierPropertiesEXT vkGetImageDrmFormatModifierPropertiesEXT;
 #endif // defined(VK_EXT_image_drm_format_modifier)
 #if defined(VK_EXT_line_rasterization)
 PFN_vkCmdSetLineStippleEXT vkCmdSetLineStippleEXT;
 #endif // defined(VK_EXT_line_rasterization)
+#if defined(VK_EXT_metal_objects)
+PFN_vkExportMetalObjectsEXT vkExportMetalObjectsEXT;
+#endif // defined(VK_EXT_metal_objects)
 #if defined(VK_EXT_metal_surface)
 PFN_vkCreateMetalSurfaceEXT vkCreateMetalSurfaceEXT;
 #endif // defined(VK_EXT_metal_surface)
+#if defined(VK_EXT_multi_draw)
+PFN_vkCmdDrawMultiEXT vkCmdDrawMultiEXT;
+PFN_vkCmdDrawMultiIndexedEXT vkCmdDrawMultiIndexedEXT;
+#endif // defined(VK_EXT_multi_draw)
+#if defined(VK_EXT_pageable_device_local_memory)
+PFN_vkSetDeviceMemoryPriorityEXT vkSetDeviceMemoryPriorityEXT;
+#endif // defined(VK_EXT_pageable_device_local_memory)
+#if defined(VK_EXT_pipeline_properties)
+PFN_vkGetPipelinePropertiesEXT vkGetPipelinePropertiesEXT;
+#endif // defined(VK_EXT_pipeline_properties)
 #if defined(VK_EXT_private_data)
 PFN_vkCreatePrivateDataSlotEXT vkCreatePrivateDataSlotEXT;
 PFN_vkDestroyPrivateDataSlotEXT vkDestroyPrivateDataSlotEXT;
@@ -1053,6 +1308,24 @@ PFN_vkDestroyValidationCacheEXT vkDestroyValidationCacheEXT;
 PFN_vkGetValidationCacheDataEXT vkGetValidationCacheDataEXT;
 PFN_vkMergeValidationCachesEXT vkMergeValidationCachesEXT;
 #endif // defined(VK_EXT_validation_cache)
+#if defined(VK_EXT_vertex_input_dynamic_state)
+PFN_vkCmdSetVertexInputEXT vkCmdSetVertexInputEXT;
+#endif // defined(VK_EXT_vertex_input_dynamic_state)
+#if defined(VK_FUCHSIA_buffer_collection)
+PFN_vkCreateBufferCollectionFUCHSIA vkCreateBufferCollectionFUCHSIA;
+PFN_vkDestroyBufferCollectionFUCHSIA vkDestroyBufferCollectionFUCHSIA;
+PFN_vkGetBufferCollectionPropertiesFUCHSIA vkGetBufferCollectionPropertiesFUCHSIA;
+PFN_vkSetBufferCollectionBufferConstraintsFUCHSIA vkSetBufferCollectionBufferConstraintsFUCHSIA;
+PFN_vkSetBufferCollectionImageConstraintsFUCHSIA vkSetBufferCollectionImageConstraintsFUCHSIA;
+#endif // defined(VK_FUCHSIA_buffer_collection)
+#if defined(VK_FUCHSIA_external_memory)
+PFN_vkGetMemoryZirconHandleFUCHSIA vkGetMemoryZirconHandleFUCHSIA;
+PFN_vkGetMemoryZirconHandlePropertiesFUCHSIA vkGetMemoryZirconHandlePropertiesFUCHSIA;
+#endif // defined(VK_FUCHSIA_external_memory)
+#if defined(VK_FUCHSIA_external_semaphore)
+PFN_vkGetSemaphoreZirconHandleFUCHSIA vkGetSemaphoreZirconHandleFUCHSIA;
+PFN_vkImportSemaphoreZirconHandleFUCHSIA vkImportSemaphoreZirconHandleFUCHSIA;
+#endif // defined(VK_FUCHSIA_external_semaphore)
 #if defined(VK_FUCHSIA_imagepipe_surface)
 PFN_vkCreateImagePipeSurfaceFUCHSIA vkCreateImagePipeSurfaceFUCHSIA;
 #endif // defined(VK_FUCHSIA_imagepipe_surface)
@@ -1063,6 +1336,13 @@ PFN_vkCreateStreamDescriptorSurfaceGGP vkCreateStreamDescriptorSurfaceGGP;
 PFN_vkGetPastPresentationTimingGOOGLE vkGetPastPresentationTimingGOOGLE;
 PFN_vkGetRefreshCycleDurationGOOGLE vkGetRefreshCycleDurationGOOGLE;
 #endif // defined(VK_GOOGLE_display_timing)
+#if defined(VK_HUAWEI_invocation_mask)
+PFN_vkCmdBindInvocationMaskHUAWEI vkCmdBindInvocationMaskHUAWEI;
+#endif // defined(VK_HUAWEI_invocation_mask)
+#if defined(VK_HUAWEI_subpass_shading)
+PFN_vkCmdSubpassShadingHUAWEI vkCmdSubpassShadingHUAWEI;
+PFN_vkGetDeviceSubpassShadingMaxWorkgroupSizeHUAWEI vkGetDeviceSubpassShadingMaxWorkgroupSizeHUAWEI;
+#endif // defined(VK_HUAWEI_subpass_shading)
 #if defined(VK_INTEL_performance_query)
 PFN_vkAcquirePerformanceConfigurationINTEL vkAcquirePerformanceConfigurationINTEL;
 PFN_vkCmdSetPerformanceMarkerINTEL vkCmdSetPerformanceMarkerINTEL;
@@ -1074,6 +1354,24 @@ PFN_vkQueueSetPerformanceConfigurationINTEL vkQueueSetPerformanceConfigurationIN
 PFN_vkReleasePerformanceConfigurationINTEL vkReleasePerformanceConfigurationINTEL;
 PFN_vkUninitializePerformanceApiINTEL vkUninitializePerformanceApiINTEL;
 #endif // defined(VK_INTEL_performance_query)
+#if defined(VK_KHR_acceleration_structure)
+PFN_vkBuildAccelerationStructuresKHR vkBuildAccelerationStructuresKHR;
+PFN_vkCmdBuildAccelerationStructuresIndirectKHR vkCmdBuildAccelerationStructuresIndirectKHR;
+PFN_vkCmdBuildAccelerationStructuresKHR vkCmdBuildAccelerationStructuresKHR;
+PFN_vkCmdCopyAccelerationStructureKHR vkCmdCopyAccelerationStructureKHR;
+PFN_vkCmdCopyAccelerationStructureToMemoryKHR vkCmdCopyAccelerationStructureToMemoryKHR;
+PFN_vkCmdCopyMemoryToAccelerationStructureKHR vkCmdCopyMemoryToAccelerationStructureKHR;
+PFN_vkCmdWriteAccelerationStructuresPropertiesKHR vkCmdWriteAccelerationStructuresPropertiesKHR;
+PFN_vkCopyAccelerationStructureKHR vkCopyAccelerationStructureKHR;
+PFN_vkCopyAccelerationStructureToMemoryKHR vkCopyAccelerationStructureToMemoryKHR;
+PFN_vkCopyMemoryToAccelerationStructureKHR vkCopyMemoryToAccelerationStructureKHR;
+PFN_vkCreateAccelerationStructureKHR vkCreateAccelerationStructureKHR;
+PFN_vkDestroyAccelerationStructureKHR vkDestroyAccelerationStructureKHR;
+PFN_vkGetAccelerationStructureBuildSizesKHR vkGetAccelerationStructureBuildSizesKHR;
+PFN_vkGetAccelerationStructureDeviceAddressKHR vkGetAccelerationStructureDeviceAddressKHR;
+PFN_vkGetDeviceAccelerationStructureCompatibilityKHR vkGetDeviceAccelerationStructureCompatibilityKHR;
+PFN_vkWriteAccelerationStructuresPropertiesKHR vkWriteAccelerationStructuresPropertiesKHR;
+#endif // defined(VK_KHR_acceleration_structure)
 #if defined(VK_KHR_android_surface)
 PFN_vkCreateAndroidSurfaceKHR vkCreateAndroidSurfaceKHR;
 #endif // defined(VK_KHR_android_surface)
@@ -1086,6 +1384,14 @@ PFN_vkGetBufferDeviceAddressKHR vkGetBufferDeviceAddressKHR;
 PFN_vkGetBufferOpaqueCaptureAddressKHR vkGetBufferOpaqueCaptureAddressKHR;
 PFN_vkGetDeviceMemoryOpaqueCaptureAddressKHR vkGetDeviceMemoryOpaqueCaptureAddressKHR;
 #endif // defined(VK_KHR_buffer_device_address)
+#if defined(VK_KHR_copy_commands2)
+PFN_vkCmdBlitImage2KHR vkCmdBlitImage2KHR;
+PFN_vkCmdCopyBuffer2KHR vkCmdCopyBuffer2KHR;
+PFN_vkCmdCopyBufferToImage2KHR vkCmdCopyBufferToImage2KHR;
+PFN_vkCmdCopyImage2KHR vkCmdCopyImage2KHR;
+PFN_vkCmdCopyImageToBuffer2KHR vkCmdCopyImageToBuffer2KHR;
+PFN_vkCmdResolveImage2KHR vkCmdResolveImage2KHR;
+#endif // defined(VK_KHR_copy_commands2)
 #if defined(VK_KHR_create_renderpass2)
 PFN_vkCmdBeginRenderPass2KHR vkCmdBeginRenderPass2KHR;
 PFN_vkCmdEndRenderPass2KHR vkCmdEndRenderPass2KHR;
@@ -1128,6 +1434,10 @@ PFN_vkCreateSharedSwapchainsKHR vkCreateSharedSwapchainsKHR;
 PFN_vkCmdDrawIndexedIndirectCountKHR vkCmdDrawIndexedIndirectCountKHR;
 PFN_vkCmdDrawIndirectCountKHR vkCmdDrawIndirectCountKHR;
 #endif // defined(VK_KHR_draw_indirect_count)
+#if defined(VK_KHR_dynamic_rendering)
+PFN_vkCmdBeginRenderingKHR vkCmdBeginRenderingKHR;
+PFN_vkCmdEndRenderingKHR vkCmdEndRenderingKHR;
+#endif // defined(VK_KHR_dynamic_rendering)
 #if defined(VK_KHR_external_fence_capabilities)
 PFN_vkGetPhysicalDeviceExternalFencePropertiesKHR vkGetPhysicalDeviceExternalFencePropertiesKHR;
 #endif // defined(VK_KHR_external_fence_capabilities)
@@ -1161,6 +1471,10 @@ PFN_vkImportSemaphoreFdKHR vkImportSemaphoreFdKHR;
 PFN_vkGetSemaphoreWin32HandleKHR vkGetSemaphoreWin32HandleKHR;
 PFN_vkImportSemaphoreWin32HandleKHR vkImportSemaphoreWin32HandleKHR;
 #endif // defined(VK_KHR_external_semaphore_win32)
+#if defined(VK_KHR_fragment_shading_rate)
+PFN_vkCmdSetFragmentShadingRateKHR vkCmdSetFragmentShadingRateKHR;
+PFN_vkGetPhysicalDeviceFragmentShadingRatesKHR vkGetPhysicalDeviceFragmentShadingRatesKHR;
+#endif // defined(VK_KHR_fragment_shading_rate)
 #if defined(VK_KHR_get_display_properties2)
 PFN_vkGetDisplayModeProperties2KHR vkGetDisplayModeProperties2KHR;
 PFN_vkGetDisplayPlaneCapabilities2KHR vkGetDisplayPlaneCapabilities2KHR;
@@ -1191,6 +1505,11 @@ PFN_vkTrimCommandPoolKHR vkTrimCommandPoolKHR;
 #if defined(VK_KHR_maintenance3)
 PFN_vkGetDescriptorSetLayoutSupportKHR vkGetDescriptorSetLayoutSupportKHR;
 #endif // defined(VK_KHR_maintenance3)
+#if defined(VK_KHR_maintenance4)
+PFN_vkGetDeviceBufferMemoryRequirementsKHR vkGetDeviceBufferMemoryRequirementsKHR;
+PFN_vkGetDeviceImageMemoryRequirementsKHR vkGetDeviceImageMemoryRequirementsKHR;
+PFN_vkGetDeviceImageSparseMemoryRequirementsKHR vkGetDeviceImageSparseMemoryRequirementsKHR;
+#endif // defined(VK_KHR_maintenance4)
 #if defined(VK_KHR_performance_query)
 PFN_vkAcquireProfilingLockKHR vkAcquireProfilingLockKHR;
 PFN_vkEnumeratePhysicalDeviceQueueFamilyPerformanceQueryCountersKHR vkEnumeratePhysicalDeviceQueueFamilyPerformanceQueryCountersKHR;
@@ -1202,33 +1521,24 @@ PFN_vkGetPipelineExecutableInternalRepresentationsKHR vkGetPipelineExecutableInt
 PFN_vkGetPipelineExecutablePropertiesKHR vkGetPipelineExecutablePropertiesKHR;
 PFN_vkGetPipelineExecutableStatisticsKHR vkGetPipelineExecutableStatisticsKHR;
 #endif // defined(VK_KHR_pipeline_executable_properties)
+#if defined(VK_KHR_present_wait)
+PFN_vkWaitForPresentKHR vkWaitForPresentKHR;
+#endif // defined(VK_KHR_present_wait)
 #if defined(VK_KHR_push_descriptor)
 PFN_vkCmdPushDescriptorSetKHR vkCmdPushDescriptorSetKHR;
 #endif // defined(VK_KHR_push_descriptor)
-#if defined(VK_KHR_ray_tracing)
-PFN_vkBindAccelerationStructureMemoryKHR vkBindAccelerationStructureMemoryKHR;
-PFN_vkBuildAccelerationStructureKHR vkBuildAccelerationStructureKHR;
-PFN_vkCmdBuildAccelerationStructureIndirectKHR vkCmdBuildAccelerationStructureIndirectKHR;
-PFN_vkCmdBuildAccelerationStructureKHR vkCmdBuildAccelerationStructureKHR;
-PFN_vkCmdCopyAccelerationStructureKHR vkCmdCopyAccelerationStructureKHR;
-PFN_vkCmdCopyAccelerationStructureToMemoryKHR vkCmdCopyAccelerationStructureToMemoryKHR;
-PFN_vkCmdCopyMemoryToAccelerationStructureKHR vkCmdCopyMemoryToAccelerationStructureKHR;
+#if (defined(VK_KHR_ray_tracing_maintenance1) && defined(VK_KHR_ray_tracing_pipeline))
+PFN_vkCmdTraceRaysIndirect2KHR vkCmdTraceRaysIndirect2KHR;
+#endif // (defined(VK_KHR_ray_tracing_maintenance1) && defined(VK_KHR_ray_tracing_pipeline))
+#if defined(VK_KHR_ray_tracing_pipeline)
+PFN_vkCmdSetRayTracingPipelineStackSizeKHR vkCmdSetRayTracingPipelineStackSizeKHR;
 PFN_vkCmdTraceRaysIndirectKHR vkCmdTraceRaysIndirectKHR;
 PFN_vkCmdTraceRaysKHR vkCmdTraceRaysKHR;
-PFN_vkCmdWriteAccelerationStructuresPropertiesKHR vkCmdWriteAccelerationStructuresPropertiesKHR;
-PFN_vkCopyAccelerationStructureKHR vkCopyAccelerationStructureKHR;
-PFN_vkCopyAccelerationStructureToMemoryKHR vkCopyAccelerationStructureToMemoryKHR;
-PFN_vkCopyMemoryToAccelerationStructureKHR vkCopyMemoryToAccelerationStructureKHR;
-PFN_vkCreateAccelerationStructureKHR vkCreateAccelerationStructureKHR;
 PFN_vkCreateRayTracingPipelinesKHR vkCreateRayTracingPipelinesKHR;
-PFN_vkDestroyAccelerationStructureKHR vkDestroyAccelerationStructureKHR;
-PFN_vkGetAccelerationStructureDeviceAddressKHR vkGetAccelerationStructureDeviceAddressKHR;
-PFN_vkGetAccelerationStructureMemoryRequirementsKHR vkGetAccelerationStructureMemoryRequirementsKHR;
-PFN_vkGetDeviceAccelerationStructureCompatibilityKHR vkGetDeviceAccelerationStructureCompatibilityKHR;
 PFN_vkGetRayTracingCaptureReplayShaderGroupHandlesKHR vkGetRayTracingCaptureReplayShaderGroupHandlesKHR;
 PFN_vkGetRayTracingShaderGroupHandlesKHR vkGetRayTracingShaderGroupHandlesKHR;
-PFN_vkWriteAccelerationStructuresPropertiesKHR vkWriteAccelerationStructuresPropertiesKHR;
-#endif // defined(VK_KHR_ray_tracing)
+PFN_vkGetRayTracingShaderGroupStackSizeKHR vkGetRayTracingShaderGroupStackSizeKHR;
+#endif // defined(VK_KHR_ray_tracing_pipeline)
 #if defined(VK_KHR_sampler_ycbcr_conversion)
 PFN_vkCreateSamplerYcbcrConversionKHR vkCreateSamplerYcbcrConversionKHR;
 PFN_vkDestroySamplerYcbcrConversionKHR vkDestroySamplerYcbcrConversionKHR;
@@ -1250,11 +1560,45 @@ PFN_vkDestroySwapchainKHR vkDestroySwapchainKHR;
 PFN_vkGetSwapchainImagesKHR vkGetSwapchainImagesKHR;
 PFN_vkQueuePresentKHR vkQueuePresentKHR;
 #endif // defined(VK_KHR_swapchain)
+#if defined(VK_KHR_synchronization2)
+PFN_vkCmdPipelineBarrier2KHR vkCmdPipelineBarrier2KHR;
+PFN_vkCmdResetEvent2KHR vkCmdResetEvent2KHR;
+PFN_vkCmdSetEvent2KHR vkCmdSetEvent2KHR;
+PFN_vkCmdWaitEvents2KHR vkCmdWaitEvents2KHR;
+PFN_vkCmdWriteTimestamp2KHR vkCmdWriteTimestamp2KHR;
+PFN_vkQueueSubmit2KHR vkQueueSubmit2KHR;
+#endif // defined(VK_KHR_synchronization2)
+#if (defined(VK_KHR_synchronization2) && defined(VK_AMD_buffer_marker))
+PFN_vkCmdWriteBufferMarker2AMD vkCmdWriteBufferMarker2AMD;
+#endif // (defined(VK_KHR_synchronization2) && defined(VK_AMD_buffer_marker))
+#if (defined(VK_KHR_synchronization2) && defined(VK_NV_device_diagnostic_checkpoints))
+PFN_vkGetQueueCheckpointData2NV vkGetQueueCheckpointData2NV;
+#endif // (defined(VK_KHR_synchronization2) && defined(VK_NV_device_diagnostic_checkpoints))
 #if defined(VK_KHR_timeline_semaphore)
 PFN_vkGetSemaphoreCounterValueKHR vkGetSemaphoreCounterValueKHR;
 PFN_vkSignalSemaphoreKHR vkSignalSemaphoreKHR;
 PFN_vkWaitSemaphoresKHR vkWaitSemaphoresKHR;
 #endif // defined(VK_KHR_timeline_semaphore)
+#if defined(VK_KHR_video_decode_queue)
+PFN_vkCmdDecodeVideoKHR vkCmdDecodeVideoKHR;
+#endif // defined(VK_KHR_video_decode_queue)
+#if defined(VK_KHR_video_encode_queue)
+PFN_vkCmdEncodeVideoKHR vkCmdEncodeVideoKHR;
+#endif // defined(VK_KHR_video_encode_queue)
+#if defined(VK_KHR_video_queue)
+PFN_vkBindVideoSessionMemoryKHR vkBindVideoSessionMemoryKHR;
+PFN_vkCmdBeginVideoCodingKHR vkCmdBeginVideoCodingKHR;
+PFN_vkCmdControlVideoCodingKHR vkCmdControlVideoCodingKHR;
+PFN_vkCmdEndVideoCodingKHR vkCmdEndVideoCodingKHR;
+PFN_vkCreateVideoSessionKHR vkCreateVideoSessionKHR;
+PFN_vkCreateVideoSessionParametersKHR vkCreateVideoSessionParametersKHR;
+PFN_vkDestroyVideoSessionKHR vkDestroyVideoSessionKHR;
+PFN_vkDestroyVideoSessionParametersKHR vkDestroyVideoSessionParametersKHR;
+PFN_vkGetPhysicalDeviceVideoCapabilitiesKHR vkGetPhysicalDeviceVideoCapabilitiesKHR;
+PFN_vkGetPhysicalDeviceVideoFormatPropertiesKHR vkGetPhysicalDeviceVideoFormatPropertiesKHR;
+PFN_vkGetVideoSessionMemoryRequirementsKHR vkGetVideoSessionMemoryRequirementsKHR;
+PFN_vkUpdateVideoSessionParametersKHR vkUpdateVideoSessionParametersKHR;
+#endif // defined(VK_KHR_video_queue)
 #if defined(VK_KHR_wayland_surface)
 PFN_vkCreateWaylandSurfaceKHR vkCreateWaylandSurfaceKHR;
 PFN_vkGetPhysicalDeviceWaylandPresentationSupportKHR vkGetPhysicalDeviceWaylandPresentationSupportKHR;
@@ -1280,10 +1624,21 @@ PFN_vkCreateMacOSSurfaceMVK vkCreateMacOSSurfaceMVK;
 #if defined(VK_NN_vi_surface)
 PFN_vkCreateViSurfaceNN vkCreateViSurfaceNN;
 #endif // defined(VK_NN_vi_surface)
+#if defined(VK_NVX_binary_import)
+PFN_vkCmdCuLaunchKernelNVX vkCmdCuLaunchKernelNVX;
+PFN_vkCreateCuFunctionNVX vkCreateCuFunctionNVX;
+PFN_vkCreateCuModuleNVX vkCreateCuModuleNVX;
+PFN_vkDestroyCuFunctionNVX vkDestroyCuFunctionNVX;
+PFN_vkDestroyCuModuleNVX vkDestroyCuModuleNVX;
+#endif // defined(VK_NVX_binary_import)
 #if defined(VK_NVX_image_view_handle)
 PFN_vkGetImageViewAddressNVX vkGetImageViewAddressNVX;
 PFN_vkGetImageViewHandleNVX vkGetImageViewHandleNVX;
 #endif // defined(VK_NVX_image_view_handle)
+#if defined(VK_NV_acquire_winrt_display)
+PFN_vkAcquireWinrtDisplayNV vkAcquireWinrtDisplayNV;
+PFN_vkGetWinrtDisplayNV vkGetWinrtDisplayNV;
+#endif // defined(VK_NV_acquire_winrt_display)
 #if defined(VK_NV_clip_space_w_scaling)
 PFN_vkCmdSetViewportWScalingNV vkCmdSetViewportWScalingNV;
 #endif // defined(VK_NV_clip_space_w_scaling)
@@ -1308,9 +1663,15 @@ PFN_vkGetGeneratedCommandsMemoryRequirementsNV vkGetGeneratedCommandsMemoryRequi
 #if defined(VK_NV_external_memory_capabilities)
 PFN_vkGetPhysicalDeviceExternalImageFormatPropertiesNV vkGetPhysicalDeviceExternalImageFormatPropertiesNV;
 #endif // defined(VK_NV_external_memory_capabilities)
+#if defined(VK_NV_external_memory_rdma)
+PFN_vkGetMemoryRemoteAddressNV vkGetMemoryRemoteAddressNV;
+#endif // defined(VK_NV_external_memory_rdma)
 #if defined(VK_NV_external_memory_win32)
 PFN_vkGetMemoryWin32HandleNV vkGetMemoryWin32HandleNV;
 #endif // defined(VK_NV_external_memory_win32)
+#if defined(VK_NV_fragment_shading_rate_enums)
+PFN_vkCmdSetFragmentShadingRateEnumNV vkCmdSetFragmentShadingRateEnumNV;
+#endif // defined(VK_NV_fragment_shading_rate_enums)
 #if defined(VK_NV_mesh_shader)
 PFN_vkCmdDrawMeshTasksIndirectCountNV vkCmdDrawMeshTasksIndirectCountNV;
 PFN_vkCmdDrawMeshTasksIndirectNV vkCmdDrawMeshTasksIndirectNV;
@@ -1338,6 +1699,14 @@ PFN_vkCmdBindShadingRateImageNV vkCmdBindShadingRateImageNV;
 PFN_vkCmdSetCoarseSampleOrderNV vkCmdSetCoarseSampleOrderNV;
 PFN_vkCmdSetViewportShadingRatePaletteNV vkCmdSetViewportShadingRatePaletteNV;
 #endif // defined(VK_NV_shading_rate_image)
+#if defined(VK_QNX_screen_surface)
+PFN_vkCreateScreenSurfaceQNX vkCreateScreenSurfaceQNX;
+PFN_vkGetPhysicalDeviceScreenPresentationSupportQNX vkGetPhysicalDeviceScreenPresentationSupportQNX;
+#endif // defined(VK_QNX_screen_surface)
+#if defined(VK_VALVE_descriptor_set_host_mapping)
+PFN_vkGetDescriptorSetHostMappingVALVE vkGetDescriptorSetHostMappingVALVE;
+PFN_vkGetDescriptorSetLayoutHostMappingInfoVALVE vkGetDescriptorSetLayoutHostMappingInfoVALVE;
+#endif // defined(VK_VALVE_descriptor_set_host_mapping)
 #if (defined(VK_EXT_full_screen_exclusive) && defined(VK_KHR_device_group)) || (defined(VK_EXT_full_screen_exclusive) && defined(VK_VERSION_1_1))
 PFN_vkGetDeviceGroupSurfacePresentModes2EXT vkGetDeviceGroupSurfacePresentModes2EXT;
 #endif // (defined(VK_EXT_full_screen_exclusive) && defined(VK_KHR_device_group)) || (defined(VK_EXT_full_screen_exclusive) && defined(VK_VERSION_1_1))
@@ -1352,6 +1721,8 @@ PFN_vkGetPhysicalDevicePresentRectanglesKHR vkGetPhysicalDevicePresentRectangles
 #if (defined(VK_KHR_device_group) && defined(VK_KHR_swapchain)) || (defined(VK_KHR_swapchain) && defined(VK_VERSION_1_1))
 PFN_vkAcquireNextImage2KHR vkAcquireNextImage2KHR;
 #endif // (defined(VK_KHR_device_group) && defined(VK_KHR_swapchain)) || (defined(VK_KHR_swapchain) && defined(VK_VERSION_1_1))
+
+} // namespace bluevk
 
 #if !defined(NDEBUG)
 #include <utils/Log.h>
@@ -2096,6 +2467,17 @@ utils::io::ostream& operator<<(utils::io::ostream& out, const VkDebugReportObjec
     }
     return out;
 }
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkDeviceMemoryReportEventTypeEXT& value) {
+    switch (value) {
+        case VK_DEVICE_MEMORY_REPORT_EVENT_TYPE_ALLOCATE_EXT: out << "VK_DEVICE_MEMORY_REPORT_EVENT_TYPE_ALLOCATE_EXT"; break;
+        case VK_DEVICE_MEMORY_REPORT_EVENT_TYPE_FREE_EXT: out << "VK_DEVICE_MEMORY_REPORT_EVENT_TYPE_FREE_EXT"; break;
+        case VK_DEVICE_MEMORY_REPORT_EVENT_TYPE_IMPORT_EXT: out << "VK_DEVICE_MEMORY_REPORT_EVENT_TYPE_IMPORT_EXT"; break;
+        case VK_DEVICE_MEMORY_REPORT_EVENT_TYPE_UNIMPORT_EXT: out << "VK_DEVICE_MEMORY_REPORT_EVENT_TYPE_UNIMPORT_EXT"; break;
+        case VK_DEVICE_MEMORY_REPORT_EVENT_TYPE_ALLOCATION_FAILED_EXT: out << "VK_DEVICE_MEMORY_REPORT_EVENT_TYPE_ALLOCATION_FAILED_EXT"; break;
+        default: out << "UNKNOWN"; break;
+    }
+    return out;
+}
 utils::io::ostream& operator<<(utils::io::ostream& out, const VkRasterizationOrderAMD& value) {
     switch (value) {
         case VK_RASTERIZATION_ORDER_STRICT_AMD: out << "VK_RASTERIZATION_ORDER_STRICT_AMD"; break;
@@ -2132,6 +2514,7 @@ utils::io::ostream& operator<<(utils::io::ostream& out, const VkValidationFeatur
         case VK_VALIDATION_FEATURE_DISABLE_OBJECT_LIFETIMES_EXT: out << "VK_VALIDATION_FEATURE_DISABLE_OBJECT_LIFETIMES_EXT"; break;
         case VK_VALIDATION_FEATURE_DISABLE_CORE_CHECKS_EXT: out << "VK_VALIDATION_FEATURE_DISABLE_CORE_CHECKS_EXT"; break;
         case VK_VALIDATION_FEATURE_DISABLE_UNIQUE_HANDLES_EXT: out << "VK_VALIDATION_FEATURE_DISABLE_UNIQUE_HANDLES_EXT"; break;
+        case VK_VALIDATION_FEATURE_DISABLE_SHADER_VALIDATION_CACHE_EXT: out << "VK_VALIDATION_FEATURE_DISABLE_SHADER_VALIDATION_CACHE_EXT"; break;
         default: out << "UNKNOWN"; break;
     }
     return out;
@@ -2290,12 +2673,12 @@ utils::io::ostream& operator<<(utils::io::ostream& out, const VkShaderInfoTypeAM
     }
     return out;
 }
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkQueueGlobalPriorityEXT& value) {
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkQueueGlobalPriorityKHR& value) {
     switch (value) {
-        case VK_QUEUE_GLOBAL_PRIORITY_LOW_EXT: out << "VK_QUEUE_GLOBAL_PRIORITY_LOW_EXT"; break;
-        case VK_QUEUE_GLOBAL_PRIORITY_MEDIUM_EXT: out << "VK_QUEUE_GLOBAL_PRIORITY_MEDIUM_EXT"; break;
-        case VK_QUEUE_GLOBAL_PRIORITY_HIGH_EXT: out << "VK_QUEUE_GLOBAL_PRIORITY_HIGH_EXT"; break;
-        case VK_QUEUE_GLOBAL_PRIORITY_REALTIME_EXT: out << "VK_QUEUE_GLOBAL_PRIORITY_REALTIME_EXT"; break;
+        case VK_QUEUE_GLOBAL_PRIORITY_LOW_KHR: out << "VK_QUEUE_GLOBAL_PRIORITY_LOW_KHR"; break;
+        case VK_QUEUE_GLOBAL_PRIORITY_MEDIUM_KHR: out << "VK_QUEUE_GLOBAL_PRIORITY_MEDIUM_KHR"; break;
+        case VK_QUEUE_GLOBAL_PRIORITY_HIGH_KHR: out << "VK_QUEUE_GLOBAL_PRIORITY_HIGH_KHR"; break;
+        case VK_QUEUE_GLOBAL_PRIORITY_REALTIME_KHR: out << "VK_QUEUE_GLOBAL_PRIORITY_REALTIME_KHR"; break;
         default: out << "UNKNOWN"; break;
     }
     return out;
@@ -2316,6 +2699,7 @@ utils::io::ostream& operator<<(utils::io::ostream& out, const VkVendorId& value)
         case VK_VENDOR_ID_KAZAN: out << "VK_VENDOR_ID_KAZAN"; break;
         case VK_VENDOR_ID_CODEPLAY: out << "VK_VENDOR_ID_CODEPLAY"; break;
         case VK_VENDOR_ID_MESA: out << "VK_VENDOR_ID_MESA"; break;
+        case VK_VENDOR_ID_POCL: out << "VK_VENDOR_ID_POCL"; break;
         default: out << "UNKNOWN"; break;
     }
     return out;
@@ -2336,6 +2720,14 @@ utils::io::ostream& operator<<(utils::io::ostream& out, const VkDriverId& value)
         case VK_DRIVER_ID_BROADCOM_PROPRIETARY: out << "VK_DRIVER_ID_BROADCOM_PROPRIETARY"; break;
         case VK_DRIVER_ID_MESA_LLVMPIPE: out << "VK_DRIVER_ID_MESA_LLVMPIPE"; break;
         case VK_DRIVER_ID_MOLTENVK: out << "VK_DRIVER_ID_MOLTENVK"; break;
+        case VK_DRIVER_ID_COREAVI_PROPRIETARY: out << "VK_DRIVER_ID_COREAVI_PROPRIETARY"; break;
+        case VK_DRIVER_ID_JUICE_PROPRIETARY: out << "VK_DRIVER_ID_JUICE_PROPRIETARY"; break;
+        case VK_DRIVER_ID_VERISILICON_PROPRIETARY: out << "VK_DRIVER_ID_VERISILICON_PROPRIETARY"; break;
+        case VK_DRIVER_ID_MESA_TURNIP: out << "VK_DRIVER_ID_MESA_TURNIP"; break;
+        case VK_DRIVER_ID_MESA_V3DV: out << "VK_DRIVER_ID_MESA_V3DV"; break;
+        case VK_DRIVER_ID_MESA_PANVK: out << "VK_DRIVER_ID_MESA_PANVK"; break;
+        case VK_DRIVER_ID_SAMSUNG_PROPRIETARY: out << "VK_DRIVER_ID_SAMSUNG_PROPRIETARY"; break;
+        case VK_DRIVER_ID_MESA_VENUS: out << "VK_DRIVER_ID_MESA_VENUS"; break;
         default: out << "UNKNOWN"; break;
     }
     return out;
@@ -2364,6 +2756,87 @@ utils::io::ostream& operator<<(utils::io::ostream& out, const VkCoarseSampleOrde
         case VK_COARSE_SAMPLE_ORDER_TYPE_CUSTOM_NV: out << "VK_COARSE_SAMPLE_ORDER_TYPE_CUSTOM_NV"; break;
         case VK_COARSE_SAMPLE_ORDER_TYPE_PIXEL_MAJOR_NV: out << "VK_COARSE_SAMPLE_ORDER_TYPE_PIXEL_MAJOR_NV"; break;
         case VK_COARSE_SAMPLE_ORDER_TYPE_SAMPLE_MAJOR_NV: out << "VK_COARSE_SAMPLE_ORDER_TYPE_SAMPLE_MAJOR_NV"; break;
+        default: out << "UNKNOWN"; break;
+    }
+    return out;
+}
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkCopyAccelerationStructureModeKHR& value) {
+    switch (value) {
+        case VK_COPY_ACCELERATION_STRUCTURE_MODE_CLONE_KHR: out << "VK_COPY_ACCELERATION_STRUCTURE_MODE_CLONE_KHR"; break;
+        case VK_COPY_ACCELERATION_STRUCTURE_MODE_COMPACT_KHR: out << "VK_COPY_ACCELERATION_STRUCTURE_MODE_COMPACT_KHR"; break;
+        case VK_COPY_ACCELERATION_STRUCTURE_MODE_SERIALIZE_KHR: out << "VK_COPY_ACCELERATION_STRUCTURE_MODE_SERIALIZE_KHR"; break;
+        case VK_COPY_ACCELERATION_STRUCTURE_MODE_DESERIALIZE_KHR: out << "VK_COPY_ACCELERATION_STRUCTURE_MODE_DESERIALIZE_KHR"; break;
+        default: out << "UNKNOWN"; break;
+    }
+    return out;
+}
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkBuildAccelerationStructureModeKHR& value) {
+    switch (value) {
+        case VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR: out << "VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR"; break;
+        case VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR: out << "VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR"; break;
+        default: out << "UNKNOWN"; break;
+    }
+    return out;
+}
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkAccelerationStructureTypeKHR& value) {
+    switch (value) {
+        case VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR: out << "VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR"; break;
+        case VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR: out << "VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR"; break;
+        case VK_ACCELERATION_STRUCTURE_TYPE_GENERIC_KHR: out << "VK_ACCELERATION_STRUCTURE_TYPE_GENERIC_KHR"; break;
+        default: out << "UNKNOWN"; break;
+    }
+    return out;
+}
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkGeometryTypeKHR& value) {
+    switch (value) {
+        case VK_GEOMETRY_TYPE_TRIANGLES_KHR: out << "VK_GEOMETRY_TYPE_TRIANGLES_KHR"; break;
+        case VK_GEOMETRY_TYPE_AABBS_KHR: out << "VK_GEOMETRY_TYPE_AABBS_KHR"; break;
+        case VK_GEOMETRY_TYPE_INSTANCES_KHR: out << "VK_GEOMETRY_TYPE_INSTANCES_KHR"; break;
+        default: out << "UNKNOWN"; break;
+    }
+    return out;
+}
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkAccelerationStructureMemoryRequirementsTypeNV& value) {
+    switch (value) {
+        case VK_ACCELERATION_STRUCTURE_MEMORY_REQUIREMENTS_TYPE_OBJECT_NV: out << "VK_ACCELERATION_STRUCTURE_MEMORY_REQUIREMENTS_TYPE_OBJECT_NV"; break;
+        case VK_ACCELERATION_STRUCTURE_MEMORY_REQUIREMENTS_TYPE_BUILD_SCRATCH_NV: out << "VK_ACCELERATION_STRUCTURE_MEMORY_REQUIREMENTS_TYPE_BUILD_SCRATCH_NV"; break;
+        case VK_ACCELERATION_STRUCTURE_MEMORY_REQUIREMENTS_TYPE_UPDATE_SCRATCH_NV: out << "VK_ACCELERATION_STRUCTURE_MEMORY_REQUIREMENTS_TYPE_UPDATE_SCRATCH_NV"; break;
+        default: out << "UNKNOWN"; break;
+    }
+    return out;
+}
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkAccelerationStructureBuildTypeKHR& value) {
+    switch (value) {
+        case VK_ACCELERATION_STRUCTURE_BUILD_TYPE_HOST_KHR: out << "VK_ACCELERATION_STRUCTURE_BUILD_TYPE_HOST_KHR"; break;
+        case VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR: out << "VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR"; break;
+        case VK_ACCELERATION_STRUCTURE_BUILD_TYPE_HOST_OR_DEVICE_KHR: out << "VK_ACCELERATION_STRUCTURE_BUILD_TYPE_HOST_OR_DEVICE_KHR"; break;
+        default: out << "UNKNOWN"; break;
+    }
+    return out;
+}
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkRayTracingShaderGroupTypeKHR& value) {
+    switch (value) {
+        case VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR: out << "VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR"; break;
+        case VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR: out << "VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR"; break;
+        case VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_KHR: out << "VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_KHR"; break;
+        default: out << "UNKNOWN"; break;
+    }
+    return out;
+}
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkAccelerationStructureCompatibilityKHR& value) {
+    switch (value) {
+        case VK_ACCELERATION_STRUCTURE_COMPATIBILITY_COMPATIBLE_KHR: out << "VK_ACCELERATION_STRUCTURE_COMPATIBILITY_COMPATIBLE_KHR"; break;
+        case VK_ACCELERATION_STRUCTURE_COMPATIBILITY_INCOMPATIBLE_KHR: out << "VK_ACCELERATION_STRUCTURE_COMPATIBILITY_INCOMPATIBLE_KHR"; break;
+        default: out << "UNKNOWN"; break;
+    }
+    return out;
+}
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkShaderGroupShaderKHR& value) {
+    switch (value) {
+        case VK_SHADER_GROUP_SHADER_GENERAL_KHR: out << "VK_SHADER_GROUP_SHADER_GENERAL_KHR"; break;
+        case VK_SHADER_GROUP_SHADER_CLOSEST_HIT_KHR: out << "VK_SHADER_GROUP_SHADER_CLOSEST_HIT_KHR"; break;
+        case VK_SHADER_GROUP_SHADER_ANY_HIT_KHR: out << "VK_SHADER_GROUP_SHADER_ANY_HIT_KHR"; break;
+        case VK_SHADER_GROUP_SHADER_INTERSECTION_KHR: out << "VK_SHADER_GROUP_SHADER_INTERSECTION_KHR"; break;
         default: out << "UNKNOWN"; break;
     }
     return out;
@@ -2512,692 +2985,77 @@ utils::io::ostream& operator<<(utils::io::ostream& out, const VkLineRasterizatio
     }
     return out;
 }
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkPipelineCacheCreateFlagBits& value) {
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkFragmentShadingRateCombinerOpKHR& value) {
     switch (value) {
-        default: out << "UNKNOWN_FLAGS"; break;
+        case VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR: out << "VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR"; break;
+        case VK_FRAGMENT_SHADING_RATE_COMBINER_OP_REPLACE_KHR: out << "VK_FRAGMENT_SHADING_RATE_COMBINER_OP_REPLACE_KHR"; break;
+        case VK_FRAGMENT_SHADING_RATE_COMBINER_OP_MIN_KHR: out << "VK_FRAGMENT_SHADING_RATE_COMBINER_OP_MIN_KHR"; break;
+        case VK_FRAGMENT_SHADING_RATE_COMBINER_OP_MAX_KHR: out << "VK_FRAGMENT_SHADING_RATE_COMBINER_OP_MAX_KHR"; break;
+        case VK_FRAGMENT_SHADING_RATE_COMBINER_OP_MUL_KHR: out << "VK_FRAGMENT_SHADING_RATE_COMBINER_OP_MUL_KHR"; break;
+        default: out << "UNKNOWN"; break;
     }
     return out;
 }
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkCullModeFlagBits& value) {
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkFragmentShadingRateNV& value) {
     switch (value) {
-        case 0x00000000: out << "VK_CULL_MODE_NONE"; break;
-        case 0x00000001: out << "VK_CULL_MODE_FRONT_BIT"; break;
-        case 0x00000002: out << "VK_CULL_MODE_BACK_BIT"; break;
-        case 0x00000003: out << "VK_CULL_MODE_FRONT_AND_BACK"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
+        case VK_FRAGMENT_SHADING_RATE_1_INVOCATION_PER_PIXEL_NV: out << "VK_FRAGMENT_SHADING_RATE_1_INVOCATION_PER_PIXEL_NV"; break;
+        case VK_FRAGMENT_SHADING_RATE_1_INVOCATION_PER_1X2_PIXELS_NV: out << "VK_FRAGMENT_SHADING_RATE_1_INVOCATION_PER_1X2_PIXELS_NV"; break;
+        case VK_FRAGMENT_SHADING_RATE_1_INVOCATION_PER_2X1_PIXELS_NV: out << "VK_FRAGMENT_SHADING_RATE_1_INVOCATION_PER_2X1_PIXELS_NV"; break;
+        case VK_FRAGMENT_SHADING_RATE_1_INVOCATION_PER_2X2_PIXELS_NV: out << "VK_FRAGMENT_SHADING_RATE_1_INVOCATION_PER_2X2_PIXELS_NV"; break;
+        case VK_FRAGMENT_SHADING_RATE_1_INVOCATION_PER_2X4_PIXELS_NV: out << "VK_FRAGMENT_SHADING_RATE_1_INVOCATION_PER_2X4_PIXELS_NV"; break;
+        case VK_FRAGMENT_SHADING_RATE_1_INVOCATION_PER_4X2_PIXELS_NV: out << "VK_FRAGMENT_SHADING_RATE_1_INVOCATION_PER_4X2_PIXELS_NV"; break;
+        case VK_FRAGMENT_SHADING_RATE_1_INVOCATION_PER_4X4_PIXELS_NV: out << "VK_FRAGMENT_SHADING_RATE_1_INVOCATION_PER_4X4_PIXELS_NV"; break;
+        case VK_FRAGMENT_SHADING_RATE_2_INVOCATIONS_PER_PIXEL_NV: out << "VK_FRAGMENT_SHADING_RATE_2_INVOCATIONS_PER_PIXEL_NV"; break;
+        case VK_FRAGMENT_SHADING_RATE_4_INVOCATIONS_PER_PIXEL_NV: out << "VK_FRAGMENT_SHADING_RATE_4_INVOCATIONS_PER_PIXEL_NV"; break;
+        case VK_FRAGMENT_SHADING_RATE_8_INVOCATIONS_PER_PIXEL_NV: out << "VK_FRAGMENT_SHADING_RATE_8_INVOCATIONS_PER_PIXEL_NV"; break;
+        case VK_FRAGMENT_SHADING_RATE_16_INVOCATIONS_PER_PIXEL_NV: out << "VK_FRAGMENT_SHADING_RATE_16_INVOCATIONS_PER_PIXEL_NV"; break;
+        case VK_FRAGMENT_SHADING_RATE_NO_INVOCATIONS_NV: out << "VK_FRAGMENT_SHADING_RATE_NO_INVOCATIONS_NV"; break;
+        default: out << "UNKNOWN"; break;
     }
     return out;
 }
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkQueueFlagBits& value) {
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkFragmentShadingRateTypeNV& value) {
     switch (value) {
-        case 0x00000001: out << "VK_QUEUE_GRAPHICS_BIT"; break;
-        case 0x00000002: out << "VK_QUEUE_COMPUTE_BIT"; break;
-        case 0x00000004: out << "VK_QUEUE_TRANSFER_BIT"; break;
-        case 0x00000008: out << "VK_QUEUE_SPARSE_BINDING_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
+        case VK_FRAGMENT_SHADING_RATE_TYPE_FRAGMENT_SIZE_NV: out << "VK_FRAGMENT_SHADING_RATE_TYPE_FRAGMENT_SIZE_NV"; break;
+        case VK_FRAGMENT_SHADING_RATE_TYPE_ENUMS_NV: out << "VK_FRAGMENT_SHADING_RATE_TYPE_ENUMS_NV"; break;
+        default: out << "UNKNOWN"; break;
     }
     return out;
 }
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkRenderPassCreateFlagBits& value) {
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkSubpassMergeStatusEXT& value) {
     switch (value) {
-        default: out << "UNKNOWN_FLAGS"; break;
+        case VK_SUBPASS_MERGE_STATUS_MERGED_EXT: out << "VK_SUBPASS_MERGE_STATUS_MERGED_EXT"; break;
+        case VK_SUBPASS_MERGE_STATUS_DISALLOWED_EXT: out << "VK_SUBPASS_MERGE_STATUS_DISALLOWED_EXT"; break;
+        case VK_SUBPASS_MERGE_STATUS_NOT_MERGED_SIDE_EFFECTS_EXT: out << "VK_SUBPASS_MERGE_STATUS_NOT_MERGED_SIDE_EFFECTS_EXT"; break;
+        case VK_SUBPASS_MERGE_STATUS_NOT_MERGED_SAMPLES_MISMATCH_EXT: out << "VK_SUBPASS_MERGE_STATUS_NOT_MERGED_SAMPLES_MISMATCH_EXT"; break;
+        case VK_SUBPASS_MERGE_STATUS_NOT_MERGED_VIEWS_MISMATCH_EXT: out << "VK_SUBPASS_MERGE_STATUS_NOT_MERGED_VIEWS_MISMATCH_EXT"; break;
+        case VK_SUBPASS_MERGE_STATUS_NOT_MERGED_ALIASING_EXT: out << "VK_SUBPASS_MERGE_STATUS_NOT_MERGED_ALIASING_EXT"; break;
+        case VK_SUBPASS_MERGE_STATUS_NOT_MERGED_DEPENDENCIES_EXT: out << "VK_SUBPASS_MERGE_STATUS_NOT_MERGED_DEPENDENCIES_EXT"; break;
+        case VK_SUBPASS_MERGE_STATUS_NOT_MERGED_INCOMPATIBLE_INPUT_ATTACHMENT_EXT: out << "VK_SUBPASS_MERGE_STATUS_NOT_MERGED_INCOMPATIBLE_INPUT_ATTACHMENT_EXT"; break;
+        case VK_SUBPASS_MERGE_STATUS_NOT_MERGED_TOO_MANY_ATTACHMENTS_EXT: out << "VK_SUBPASS_MERGE_STATUS_NOT_MERGED_TOO_MANY_ATTACHMENTS_EXT"; break;
+        case VK_SUBPASS_MERGE_STATUS_NOT_MERGED_INSUFFICIENT_STORAGE_EXT: out << "VK_SUBPASS_MERGE_STATUS_NOT_MERGED_INSUFFICIENT_STORAGE_EXT"; break;
+        case VK_SUBPASS_MERGE_STATUS_NOT_MERGED_DEPTH_STENCIL_COUNT_EXT: out << "VK_SUBPASS_MERGE_STATUS_NOT_MERGED_DEPTH_STENCIL_COUNT_EXT"; break;
+        case VK_SUBPASS_MERGE_STATUS_NOT_MERGED_RESOLVE_ATTACHMENT_REUSE_EXT: out << "VK_SUBPASS_MERGE_STATUS_NOT_MERGED_RESOLVE_ATTACHMENT_REUSE_EXT"; break;
+        case VK_SUBPASS_MERGE_STATUS_NOT_MERGED_SINGLE_SUBPASS_EXT: out << "VK_SUBPASS_MERGE_STATUS_NOT_MERGED_SINGLE_SUBPASS_EXT"; break;
+        case VK_SUBPASS_MERGE_STATUS_NOT_MERGED_UNSPECIFIED_EXT: out << "VK_SUBPASS_MERGE_STATUS_NOT_MERGED_UNSPECIFIED_EXT"; break;
+        default: out << "UNKNOWN"; break;
     }
     return out;
 }
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDeviceQueueCreateFlagBits& value) {
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkProvokingVertexModeEXT& value) {
     switch (value) {
-        default: out << "UNKNOWN_FLAGS"; break;
+        case VK_PROVOKING_VERTEX_MODE_FIRST_VERTEX_EXT: out << "VK_PROVOKING_VERTEX_MODE_FIRST_VERTEX_EXT"; break;
+        case VK_PROVOKING_VERTEX_MODE_LAST_VERTEX_EXT: out << "VK_PROVOKING_VERTEX_MODE_LAST_VERTEX_EXT"; break;
+        default: out << "UNKNOWN"; break;
     }
     return out;
 }
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkMemoryPropertyFlagBits& value) {
+utils::io::ostream& operator<<(utils::io::ostream& out, const VkAccelerationStructureMotionInstanceTypeNV& value) {
     switch (value) {
-        case 0x00000001: out << "VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT"; break;
-        case 0x00000002: out << "VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT"; break;
-        case 0x00000004: out << "VK_MEMORY_PROPERTY_HOST_COHERENT_BIT"; break;
-        case 0x00000008: out << "VK_MEMORY_PROPERTY_HOST_CACHED_BIT"; break;
-        case 0x00000010: out << "VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkMemoryHeapFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_MEMORY_HEAP_DEVICE_LOCAL_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkAccessFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_ACCESS_INDIRECT_COMMAND_READ_BIT"; break;
-        case 0x00000002: out << "VK_ACCESS_INDEX_READ_BIT"; break;
-        case 0x00000004: out << "VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT"; break;
-        case 0x00000008: out << "VK_ACCESS_UNIFORM_READ_BIT"; break;
-        case 0x00000010: out << "VK_ACCESS_INPUT_ATTACHMENT_READ_BIT"; break;
-        case 0x00000020: out << "VK_ACCESS_SHADER_READ_BIT"; break;
-        case 0x00000040: out << "VK_ACCESS_SHADER_WRITE_BIT"; break;
-        case 0x00000080: out << "VK_ACCESS_COLOR_ATTACHMENT_READ_BIT"; break;
-        case 0x00000100: out << "VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT"; break;
-        case 0x00000200: out << "VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT"; break;
-        case 0x00000400: out << "VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT"; break;
-        case 0x00000800: out << "VK_ACCESS_TRANSFER_READ_BIT"; break;
-        case 0x00001000: out << "VK_ACCESS_TRANSFER_WRITE_BIT"; break;
-        case 0x00002000: out << "VK_ACCESS_HOST_READ_BIT"; break;
-        case 0x00004000: out << "VK_ACCESS_HOST_WRITE_BIT"; break;
-        case 0x00008000: out << "VK_ACCESS_MEMORY_READ_BIT"; break;
-        case 0x00010000: out << "VK_ACCESS_MEMORY_WRITE_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkBufferUsageFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_BUFFER_USAGE_TRANSFER_SRC_BIT"; break;
-        case 0x00000002: out << "VK_BUFFER_USAGE_TRANSFER_DST_BIT"; break;
-        case 0x00000004: out << "VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT"; break;
-        case 0x00000008: out << "VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT"; break;
-        case 0x00000010: out << "VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT"; break;
-        case 0x00000020: out << "VK_BUFFER_USAGE_STORAGE_BUFFER_BIT"; break;
-        case 0x00000040: out << "VK_BUFFER_USAGE_INDEX_BUFFER_BIT"; break;
-        case 0x00000080: out << "VK_BUFFER_USAGE_VERTEX_BUFFER_BIT"; break;
-        case 0x00000100: out << "VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkBufferCreateFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_BUFFER_CREATE_SPARSE_BINDING_BIT"; break;
-        case 0x00000002: out << "VK_BUFFER_CREATE_SPARSE_RESIDENCY_BIT"; break;
-        case 0x00000004: out << "VK_BUFFER_CREATE_SPARSE_ALIASED_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkShaderStageFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_SHADER_STAGE_VERTEX_BIT"; break;
-        case 0x00000002: out << "VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT"; break;
-        case 0x00000004: out << "VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT"; break;
-        case 0x00000008: out << "VK_SHADER_STAGE_GEOMETRY_BIT"; break;
-        case 0x00000010: out << "VK_SHADER_STAGE_FRAGMENT_BIT"; break;
-        case 0x00000020: out << "VK_SHADER_STAGE_COMPUTE_BIT"; break;
-        case 0x0000001f: out << "VK_SHADER_STAGE_ALL_GRAPHICS"; break;
-        case 0x7fffffff: out << "VK_SHADER_STAGE_ALL"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkImageUsageFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_IMAGE_USAGE_TRANSFER_SRC_BIT"; break;
-        case 0x00000002: out << "VK_IMAGE_USAGE_TRANSFER_DST_BIT"; break;
-        case 0x00000004: out << "VK_IMAGE_USAGE_SAMPLED_BIT"; break;
-        case 0x00000008: out << "VK_IMAGE_USAGE_STORAGE_BIT"; break;
-        case 0x00000010: out << "VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT"; break;
-        case 0x00000020: out << "VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT"; break;
-        case 0x00000040: out << "VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT"; break;
-        case 0x00000080: out << "VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkImageCreateFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_IMAGE_CREATE_SPARSE_BINDING_BIT"; break;
-        case 0x00000002: out << "VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT"; break;
-        case 0x00000004: out << "VK_IMAGE_CREATE_SPARSE_ALIASED_BIT"; break;
-        case 0x00000008: out << "VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT"; break;
-        case 0x00000010: out << "VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkImageViewCreateFlagBits& value) {
-    switch (value) {
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSamplerCreateFlagBits& value) {
-    switch (value) {
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkPipelineCreateFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT"; break;
-        case 0x00000002: out << "VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT"; break;
-        case 0x00000004: out << "VK_PIPELINE_CREATE_DERIVATIVE_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkPipelineShaderStageCreateFlagBits& value) {
-    switch (value) {
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkColorComponentFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_COLOR_COMPONENT_R_BIT"; break;
-        case 0x00000002: out << "VK_COLOR_COMPONENT_G_BIT"; break;
-        case 0x00000004: out << "VK_COLOR_COMPONENT_B_BIT"; break;
-        case 0x00000008: out << "VK_COLOR_COMPONENT_A_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkFenceCreateFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_FENCE_CREATE_SIGNALED_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkFormatFeatureFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT"; break;
-        case 0x00000002: out << "VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT"; break;
-        case 0x00000004: out << "VK_FORMAT_FEATURE_STORAGE_IMAGE_ATOMIC_BIT"; break;
-        case 0x00000008: out << "VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT"; break;
-        case 0x00000010: out << "VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT"; break;
-        case 0x00000020: out << "VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_ATOMIC_BIT"; break;
-        case 0x00000040: out << "VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT"; break;
-        case 0x00000080: out << "VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT"; break;
-        case 0x00000100: out << "VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT"; break;
-        case 0x00000200: out << "VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT"; break;
-        case 0x00000400: out << "VK_FORMAT_FEATURE_BLIT_SRC_BIT"; break;
-        case 0x00000800: out << "VK_FORMAT_FEATURE_BLIT_DST_BIT"; break;
-        case 0x00001000: out << "VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkQueryControlFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_QUERY_CONTROL_PRECISE_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkQueryResultFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_QUERY_RESULT_64_BIT"; break;
-        case 0x00000002: out << "VK_QUERY_RESULT_WAIT_BIT"; break;
-        case 0x00000004: out << "VK_QUERY_RESULT_WITH_AVAILABILITY_BIT"; break;
-        case 0x00000008: out << "VK_QUERY_RESULT_PARTIAL_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkCommandBufferUsageFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT"; break;
-        case 0x00000002: out << "VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT"; break;
-        case 0x00000004: out << "VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkQueryPipelineStatisticFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_QUERY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_VERTICES_BIT"; break;
-        case 0x00000002: out << "VK_QUERY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_PRIMITIVES_BIT"; break;
-        case 0x00000004: out << "VK_QUERY_PIPELINE_STATISTIC_VERTEX_SHADER_INVOCATIONS_BIT"; break;
-        case 0x00000008: out << "VK_QUERY_PIPELINE_STATISTIC_GEOMETRY_SHADER_INVOCATIONS_BIT"; break;
-        case 0x00000010: out << "VK_QUERY_PIPELINE_STATISTIC_GEOMETRY_SHADER_PRIMITIVES_BIT"; break;
-        case 0x00000020: out << "VK_QUERY_PIPELINE_STATISTIC_CLIPPING_INVOCATIONS_BIT"; break;
-        case 0x00000040: out << "VK_QUERY_PIPELINE_STATISTIC_CLIPPING_PRIMITIVES_BIT"; break;
-        case 0x00000080: out << "VK_QUERY_PIPELINE_STATISTIC_FRAGMENT_SHADER_INVOCATIONS_BIT"; break;
-        case 0x00000100: out << "VK_QUERY_PIPELINE_STATISTIC_TESSELLATION_CONTROL_SHADER_PATCHES_BIT"; break;
-        case 0x00000200: out << "VK_QUERY_PIPELINE_STATISTIC_TESSELLATION_EVALUATION_SHADER_INVOCATIONS_BIT"; break;
-        case 0x00000400: out << "VK_QUERY_PIPELINE_STATISTIC_COMPUTE_SHADER_INVOCATIONS_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkImageAspectFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_IMAGE_ASPECT_COLOR_BIT"; break;
-        case 0x00000002: out << "VK_IMAGE_ASPECT_DEPTH_BIT"; break;
-        case 0x00000004: out << "VK_IMAGE_ASPECT_STENCIL_BIT"; break;
-        case 0x00000008: out << "VK_IMAGE_ASPECT_METADATA_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSparseImageFormatFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_SPARSE_IMAGE_FORMAT_SINGLE_MIPTAIL_BIT"; break;
-        case 0x00000002: out << "VK_SPARSE_IMAGE_FORMAT_ALIGNED_MIP_SIZE_BIT"; break;
-        case 0x00000004: out << "VK_SPARSE_IMAGE_FORMAT_NONSTANDARD_BLOCK_SIZE_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSparseMemoryBindFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_SPARSE_MEMORY_BIND_METADATA_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkPipelineStageFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT"; break;
-        case 0x00000002: out << "VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT"; break;
-        case 0x00000004: out << "VK_PIPELINE_STAGE_VERTEX_INPUT_BIT"; break;
-        case 0x00000008: out << "VK_PIPELINE_STAGE_VERTEX_SHADER_BIT"; break;
-        case 0x00000010: out << "VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT"; break;
-        case 0x00000020: out << "VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT"; break;
-        case 0x00000040: out << "VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT"; break;
-        case 0x00000080: out << "VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT"; break;
-        case 0x00000100: out << "VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT"; break;
-        case 0x00000200: out << "VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT"; break;
-        case 0x00000400: out << "VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT"; break;
-        case 0x00000800: out << "VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT"; break;
-        case 0x00001000: out << "VK_PIPELINE_STAGE_TRANSFER_BIT"; break;
-        case 0x00002000: out << "VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT"; break;
-        case 0x00004000: out << "VK_PIPELINE_STAGE_HOST_BIT"; break;
-        case 0x00008000: out << "VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT"; break;
-        case 0x00010000: out << "VK_PIPELINE_STAGE_ALL_COMMANDS_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkCommandPoolCreateFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_COMMAND_POOL_CREATE_TRANSIENT_BIT"; break;
-        case 0x00000002: out << "VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkCommandPoolResetFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkCommandBufferResetFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSampleCountFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_SAMPLE_COUNT_1_BIT"; break;
-        case 0x00000002: out << "VK_SAMPLE_COUNT_2_BIT"; break;
-        case 0x00000004: out << "VK_SAMPLE_COUNT_4_BIT"; break;
-        case 0x00000008: out << "VK_SAMPLE_COUNT_8_BIT"; break;
-        case 0x00000010: out << "VK_SAMPLE_COUNT_16_BIT"; break;
-        case 0x00000020: out << "VK_SAMPLE_COUNT_32_BIT"; break;
-        case 0x00000040: out << "VK_SAMPLE_COUNT_64_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkAttachmentDescriptionFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_ATTACHMENT_DESCRIPTION_MAY_ALIAS_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDescriptorPoolCreateFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDependencyFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_DEPENDENCY_BY_REGION_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSemaphoreWaitFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_SEMAPHORE_WAIT_ANY_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDisplayPlaneAlphaFlagBitsKHR& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR"; break;
-        case 0x00000002: out << "VK_DISPLAY_PLANE_ALPHA_GLOBAL_BIT_KHR"; break;
-        case 0x00000004: out << "VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_BIT_KHR"; break;
-        case 0x00000008: out << "VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_PREMULTIPLIED_BIT_KHR"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkCompositeAlphaFlagBitsKHR& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR"; break;
-        case 0x00000002: out << "VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR"; break;
-        case 0x00000004: out << "VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR"; break;
-        case 0x00000008: out << "VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSurfaceTransformFlagBitsKHR& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR"; break;
-        case 0x00000002: out << "VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR"; break;
-        case 0x00000004: out << "VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR"; break;
-        case 0x00000008: out << "VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR"; break;
-        case 0x00000010: out << "VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR"; break;
-        case 0x00000020: out << "VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR"; break;
-        case 0x00000040: out << "VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR"; break;
-        case 0x00000080: out << "VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR"; break;
-        case 0x00000100: out << "VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDebugReportFlagBitsEXT& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_DEBUG_REPORT_INFORMATION_BIT_EXT"; break;
-        case 0x00000002: out << "VK_DEBUG_REPORT_WARNING_BIT_EXT"; break;
-        case 0x00000004: out << "VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT"; break;
-        case 0x00000008: out << "VK_DEBUG_REPORT_ERROR_BIT_EXT"; break;
-        case 0x00000010: out << "VK_DEBUG_REPORT_DEBUG_BIT_EXT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkExternalMemoryHandleTypeFlagBitsNV& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT_NV"; break;
-        case 0x00000002: out << "VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT_NV"; break;
-        case 0x00000004: out << "VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_IMAGE_BIT_NV"; break;
-        case 0x00000008: out << "VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_IMAGE_KMT_BIT_NV"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkExternalMemoryFeatureFlagBitsNV& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT_NV"; break;
-        case 0x00000002: out << "VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT_NV"; break;
-        case 0x00000004: out << "VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT_NV"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSubgroupFeatureFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_SUBGROUP_FEATURE_BASIC_BIT"; break;
-        case 0x00000002: out << "VK_SUBGROUP_FEATURE_VOTE_BIT"; break;
-        case 0x00000004: out << "VK_SUBGROUP_FEATURE_ARITHMETIC_BIT"; break;
-        case 0x00000008: out << "VK_SUBGROUP_FEATURE_BALLOT_BIT"; break;
-        case 0x00000010: out << "VK_SUBGROUP_FEATURE_SHUFFLE_BIT"; break;
-        case 0x00000020: out << "VK_SUBGROUP_FEATURE_SHUFFLE_RELATIVE_BIT"; break;
-        case 0x00000040: out << "VK_SUBGROUP_FEATURE_CLUSTERED_BIT"; break;
-        case 0x00000080: out << "VK_SUBGROUP_FEATURE_QUAD_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkIndirectCommandsLayoutUsageFlagBitsNV& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_INDIRECT_COMMANDS_LAYOUT_USAGE_EXPLICIT_PREPROCESS_BIT_NV"; break;
-        case 0x00000002: out << "VK_INDIRECT_COMMANDS_LAYOUT_USAGE_INDEXED_SEQUENCES_BIT_NV"; break;
-        case 0x00000004: out << "VK_INDIRECT_COMMANDS_LAYOUT_USAGE_UNORDERED_SEQUENCES_BIT_NV"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkIndirectStateFlagBitsNV& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_INDIRECT_STATE_FLAG_FRONTFACE_BIT_NV"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkPrivateDataSlotCreateFlagBitsEXT& value) {
-    switch (value) {
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDescriptorSetLayoutCreateFlagBits& value) {
-    switch (value) {
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkExternalMemoryHandleTypeFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT"; break;
-        case 0x00000002: out << "VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT"; break;
-        case 0x00000004: out << "VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT"; break;
-        case 0x00000008: out << "VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT"; break;
-        case 0x00000010: out << "VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_KMT_BIT"; break;
-        case 0x00000020: out << "VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_HEAP_BIT"; break;
-        case 0x00000040: out << "VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_RESOURCE_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkExternalMemoryFeatureFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT"; break;
-        case 0x00000002: out << "VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT"; break;
-        case 0x00000004: out << "VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkExternalSemaphoreFeatureFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_EXTERNAL_SEMAPHORE_FEATURE_EXPORTABLE_BIT"; break;
-        case 0x00000002: out << "VK_EXTERNAL_SEMAPHORE_FEATURE_IMPORTABLE_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSemaphoreImportFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_SEMAPHORE_IMPORT_TEMPORARY_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkExternalFenceHandleTypeFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_EXTERNAL_FENCE_HANDLE_TYPE_OPAQUE_FD_BIT"; break;
-        case 0x00000002: out << "VK_EXTERNAL_FENCE_HANDLE_TYPE_OPAQUE_WIN32_BIT"; break;
-        case 0x00000004: out << "VK_EXTERNAL_FENCE_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT"; break;
-        case 0x00000008: out << "VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkExternalFenceFeatureFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_EXTERNAL_FENCE_FEATURE_EXPORTABLE_BIT"; break;
-        case 0x00000002: out << "VK_EXTERNAL_FENCE_FEATURE_IMPORTABLE_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkFenceImportFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_FENCE_IMPORT_TEMPORARY_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSurfaceCounterFlagBitsEXT& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_SURFACE_COUNTER_VBLANK_EXT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkPeerMemoryFeatureFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_PEER_MEMORY_FEATURE_COPY_SRC_BIT"; break;
-        case 0x00000002: out << "VK_PEER_MEMORY_FEATURE_COPY_DST_BIT"; break;
-        case 0x00000004: out << "VK_PEER_MEMORY_FEATURE_GENERIC_SRC_BIT"; break;
-        case 0x00000008: out << "VK_PEER_MEMORY_FEATURE_GENERIC_DST_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkMemoryAllocateFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_MEMORY_ALLOCATE_DEVICE_MASK_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDeviceGroupPresentModeFlagBitsKHR& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_DEVICE_GROUP_PRESENT_MODE_LOCAL_BIT_KHR"; break;
-        case 0x00000002: out << "VK_DEVICE_GROUP_PRESENT_MODE_REMOTE_BIT_KHR"; break;
-        case 0x00000004: out << "VK_DEVICE_GROUP_PRESENT_MODE_SUM_BIT_KHR"; break;
-        case 0x00000008: out << "VK_DEVICE_GROUP_PRESENT_MODE_LOCAL_MULTI_DEVICE_BIT_KHR"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSwapchainCreateFlagBitsKHR& value) {
-    switch (value) {
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkSubpassDescriptionFlagBits& value) {
-    switch (value) {
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDebugUtilsMessageSeverityFlagBitsEXT& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT"; break;
-        case 0x00000010: out << "VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT"; break;
-        case 0x00000100: out << "VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT"; break;
-        case 0x00001000: out << "VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDebugUtilsMessageTypeFlagBitsEXT& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT"; break;
-        case 0x00000002: out << "VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT"; break;
-        case 0x00000004: out << "VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDescriptorBindingFlagBits& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT"; break;
-        case 0x00000002: out << "VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT"; break;
-        case 0x00000004: out << "VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT"; break;
-        case 0x00000008: out << "VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkConditionalRenderingFlagBitsEXT& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_CONDITIONAL_RENDERING_INVERTED_BIT_EXT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkResolveModeFlagBits& value) {
-    switch (value) {
-        case 0x00000000: out << "VK_RESOLVE_MODE_NONE"; break;
-        case 0x00000001: out << "VK_RESOLVE_MODE_SAMPLE_ZERO_BIT"; break;
-        case 0x00000002: out << "VK_RESOLVE_MODE_AVERAGE_BIT"; break;
-        case 0x00000004: out << "VK_RESOLVE_MODE_MIN_BIT"; break;
-        case 0x00000008: out << "VK_RESOLVE_MODE_MAX_BIT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkFramebufferCreateFlagBits& value) {
-    switch (value) {
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkDeviceDiagnosticsConfigFlagBitsNV& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_SHADER_DEBUG_INFO_BIT_NV"; break;
-        case 0x00000002: out << "VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_RESOURCE_TRACKING_BIT_NV"; break;
-        case 0x00000004: out << "VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_AUTOMATIC_CHECKPOINTS_BIT_NV"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkPipelineCreationFeedbackFlagBitsEXT& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_PIPELINE_CREATION_FEEDBACK_VALID_BIT_EXT"; break;
-        case 0x00000002: out << "VK_PIPELINE_CREATION_FEEDBACK_APPLICATION_PIPELINE_CACHE_HIT_BIT_EXT"; break;
-        case 0x00000004: out << "VK_PIPELINE_CREATION_FEEDBACK_BASE_PIPELINE_ACCELERATION_BIT_EXT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkPerformanceCounterDescriptionFlagBitsKHR& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_PERFORMANCE_COUNTER_DESCRIPTION_PERFORMANCE_IMPACTING_KHR"; break;
-        case 0x00000002: out << "VK_PERFORMANCE_COUNTER_DESCRIPTION_CONCURRENTLY_IMPACTED_KHR"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkAcquireProfilingLockFlagBitsKHR& value) {
-    switch (value) {
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkShaderCorePropertiesFlagBitsAMD& value) {
-    switch (value) {
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkShaderModuleCreateFlagBits& value) {
-    switch (value) {
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkPipelineCompilerControlFlagBitsAMD& value) {
-    switch (value) {
-        default: out << "UNKNOWN_FLAGS"; break;
-    }
-    return out;
-}
-utils::io::ostream& operator<<(utils::io::ostream& out, const VkToolPurposeFlagBitsEXT& value) {
-    switch (value) {
-        case 0x00000001: out << "VK_TOOL_PURPOSE_VALIDATION_BIT_EXT"; break;
-        case 0x00000002: out << "VK_TOOL_PURPOSE_PROFILING_BIT_EXT"; break;
-        case 0x00000004: out << "VK_TOOL_PURPOSE_TRACING_BIT_EXT"; break;
-        case 0x00000008: out << "VK_TOOL_PURPOSE_ADDITIONAL_FEATURES_BIT_EXT"; break;
-        case 0x00000010: out << "VK_TOOL_PURPOSE_MODIFYING_FEATURES_BIT_EXT"; break;
-        default: out << "UNKNOWN_FLAGS"; break;
+        case VK_ACCELERATION_STRUCTURE_MOTION_INSTANCE_TYPE_STATIC_NV: out << "VK_ACCELERATION_STRUCTURE_MOTION_INSTANCE_TYPE_STATIC_NV"; break;
+        case VK_ACCELERATION_STRUCTURE_MOTION_INSTANCE_TYPE_MATRIX_MOTION_NV: out << "VK_ACCELERATION_STRUCTURE_MOTION_INSTANCE_TYPE_MATRIX_MOTION_NV"; break;
+        case VK_ACCELERATION_STRUCTURE_MOTION_INSTANCE_TYPE_SRT_MOTION_NV: out << "VK_ACCELERATION_STRUCTURE_MOTION_INSTANCE_TYPE_SRT_MOTION_NV"; break;
+        default: out << "UNKNOWN"; break;
     }
     return out;
 }

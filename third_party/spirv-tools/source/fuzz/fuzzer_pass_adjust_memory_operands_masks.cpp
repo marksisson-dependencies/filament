@@ -21,13 +21,12 @@ namespace spvtools {
 namespace fuzz {
 
 FuzzerPassAdjustMemoryOperandsMasks::FuzzerPassAdjustMemoryOperandsMasks(
-    opt::IRContext* ir_context, FactManager* fact_manager,
+    opt::IRContext* ir_context, TransformationContext* transformation_context,
     FuzzerContext* fuzzer_context,
-    protobufs::TransformationSequence* transformations)
-    : FuzzerPass(ir_context, fact_manager, fuzzer_context, transformations) {}
-
-FuzzerPassAdjustMemoryOperandsMasks::~FuzzerPassAdjustMemoryOperandsMasks() =
-    default;
+    protobufs::TransformationSequence* transformations,
+    bool ignore_inapplicable_transformations)
+    : FuzzerPass(ir_context, transformation_context, fuzzer_context,
+                 transformations, ignore_inapplicable_transformations) {}
 
 void FuzzerPassAdjustMemoryOperandsMasks::Apply() {
   // Consider every block in every function.
@@ -48,8 +47,8 @@ void FuzzerPassAdjustMemoryOperandsMasks::Apply() {
         // From SPIR-V 1.4 onwards, OpCopyMemory and OpCopyMemorySized have a
         // second mask.
         switch (inst_it->opcode()) {
-          case SpvOpCopyMemory:
-          case SpvOpCopyMemorySized:
+          case spv::Op::OpCopyMemory:
+          case spv::Op::OpCopyMemorySized:
             if (TransformationSetMemoryOperandsMask::
                     MultipleMemoryOperandMasksAreSupported(GetIRContext())) {
               indices_of_available_masks_to_adjust.push_back(1);
@@ -74,35 +73,32 @@ void FuzzerPassAdjustMemoryOperandsMasks::Apply() {
                   *inst_it, mask_index);
           auto existing_mask =
               existing_mask_in_operand_index < inst_it->NumInOperands()
-                  ? inst_it->GetSingleWordOperand(
+                  ? inst_it->GetSingleWordInOperand(
                         existing_mask_in_operand_index)
-                  : static_cast<uint32_t>(SpvMemoryAccessMaskNone);
+                  : static_cast<uint32_t>(spv::MemoryAccessMask::MaskNone);
 
           // There are two things we can do to a mask:
           // - add Volatile if not already present
           // - toggle Nontemporal
           // The following ensures that we do at least one of these
-          bool add_volatile = !(existing_mask & SpvMemoryAccessVolatileMask) &&
-                              GetFuzzerContext()->ChooseEven();
+          bool add_volatile =
+              !(existing_mask & uint32_t(spv::MemoryAccessMask::Volatile)) &&
+              GetFuzzerContext()->ChooseEven();
           bool toggle_nontemporal =
               !add_volatile || GetFuzzerContext()->ChooseEven();
 
           // These bitwise operations use '|' to add Volatile if desired, and
           // '^' to toggle Nontemporal if desired.
           uint32_t new_mask =
-              (existing_mask | (add_volatile ? SpvMemoryAccessVolatileMask
-                                             : SpvMemoryAccessMaskNone)) ^
-              (toggle_nontemporal ? SpvMemoryAccessNontemporalMask
-                                  : SpvMemoryAccessMaskNone);
+              (existing_mask |
+               (add_volatile ? uint32_t(spv::MemoryAccessMask::Volatile)
+                             : uint32_t(spv::MemoryAccessMask::MaskNone))) ^
+              (toggle_nontemporal ? uint32_t(spv::MemoryAccessMask::Nontemporal)
+                                  : uint32_t(spv::MemoryAccessMask::MaskNone));
 
           TransformationSetMemoryOperandsMask transformation(
               MakeInstructionDescriptor(block, inst_it), new_mask, mask_index);
-          assert(
-              transformation.IsApplicable(GetIRContext(), *GetFactManager()) &&
-              "Transformation should be applicable by construction.");
-          transformation.Apply(GetIRContext(), GetFactManager());
-          *GetTransformations()->add_transformation() =
-              transformation.ToMessage();
+          ApplyTransformation(transformation);
         }
       }
     }

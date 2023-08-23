@@ -18,8 +18,9 @@
 
 #include <utils/Panic.h>
 
-namespace filament {
-namespace backend {
+using namespace bluevk;
+
+namespace filament::backend {
 
 constexpr inline VkSamplerAddressMode getWrapMode(SamplerWrapMode mode) noexcept {
     switch (mode) {
@@ -95,9 +96,9 @@ constexpr inline VkBool32 getCompareEnable(SamplerCompareMode mode) noexcept {
     return mode == SamplerCompareMode::NONE ? VK_FALSE : VK_TRUE;
 }
 
-VulkanSamplerCache::VulkanSamplerCache(VulkanContext& context) : mContext(context) {}
+void VulkanSamplerCache::initialize(VkDevice device) { mDevice = device; }
 
-VkSampler VulkanSamplerCache::getSampler(backend::SamplerParams params) noexcept {
+VkSampler VulkanSamplerCache::getSampler(SamplerParams params) noexcept {
     auto iter = mCache.find(params.u);
     if (UTILS_LIKELY(iter != mCache.end())) {
         return iter->second;
@@ -120,18 +121,17 @@ VkSampler VulkanSamplerCache::getSampler(backend::SamplerParams params) noexcept
         .unnormalizedCoordinates = VK_FALSE
     };
     VkSampler sampler;
-    VkResult error = vkCreateSampler(mContext.device, &samplerInfo, VKALLOC, &sampler);
+    VkResult error = vkCreateSampler(mDevice, &samplerInfo, VKALLOC, &sampler);
     ASSERT_POSTCONDITION(!error, "Unable to create sampler.");
     mCache.insert({params.u, sampler});
     return sampler;
 }
 
-void VulkanSamplerCache::reset() noexcept {
+void VulkanSamplerCache::terminate() noexcept {
     for (auto pair : mCache) {
-        vkDestroySampler(mContext.device, pair.second, VKALLOC);
+        vkDestroySampler(mDevice, pair.second, VKALLOC);
     }
     mCache.clear();
 }
 
-} // namespace filament
-} // namespace backend
+} // namespace filament::backend

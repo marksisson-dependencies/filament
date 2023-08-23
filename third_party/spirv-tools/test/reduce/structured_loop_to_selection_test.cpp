@@ -65,7 +65,7 @@ TEST(StructuredLoopToSelectionReductionPassTest, LoopyShader1) {
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
   ASSERT_EQ(1, ops.size());
 
   ASSERT_TRUE(ops[0]->PreconditionHolds());
@@ -211,7 +211,7 @@ TEST(StructuredLoopToSelectionReductionPassTest, LoopyShader2) {
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
   ASSERT_EQ(4, ops.size());
 
   ASSERT_TRUE(ops[0]->PreconditionHolds());
@@ -680,7 +680,7 @@ TEST(StructuredLoopToSelectionReductionPassTest, LoopyShader3) {
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
   ASSERT_EQ(0, ops.size());
 }
 
@@ -758,7 +758,7 @@ TEST(StructuredLoopToSelectionReductionPassTest, LoopyShader4) {
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
 
   // Initially there are two opportunities.
   ASSERT_EQ(2, ops.size());
@@ -881,7 +881,7 @@ TEST(StructuredLoopToSelectionReductionPassTest, ConditionalBreak1) {
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
   ASSERT_EQ(1, ops.size());
 
   ASSERT_TRUE(ops[0]->PreconditionHolds());
@@ -956,7 +956,7 @@ TEST(StructuredLoopToSelectionReductionPassTest, ConditionalBreak2) {
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
   ASSERT_EQ(1, ops.size());
 
   ASSERT_TRUE(ops[0]->PreconditionHolds());
@@ -1024,7 +1024,7 @@ TEST(StructuredLoopToSelectionReductionPassTest, UnconditionalBreak) {
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
   ASSERT_EQ(1, ops.size());
 
   ASSERT_TRUE(ops[0]->PreconditionHolds());
@@ -1224,7 +1224,7 @@ TEST(StructuredLoopToSelectionReductionPassTest, Complex) {
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
 
   ASSERT_EQ(2, ops.size());
   ASSERT_TRUE(ops[0]->PreconditionHolds());
@@ -1691,7 +1691,7 @@ TEST(StructuredLoopToSelectionReductionPassTest, ComplexOptimized) {
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
 
   ASSERT_EQ(2, ops.size());
   ASSERT_TRUE(ops[0]->PreconditionHolds());
@@ -2008,7 +2008,7 @@ TEST(StructuredLoopToSelectionReductionPassTest, DominanceIssue) {
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
   ASSERT_EQ(1, ops.size());
 
   ASSERT_TRUE(ops[0]->PreconditionHolds());
@@ -2156,7 +2156,7 @@ TEST(StructuredLoopToSelectionReductionPassTest, AccessChainIssue) {
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
   ASSERT_EQ(1, ops.size());
 
   ASSERT_TRUE(ops[0]->PreconditionHolds());
@@ -2313,7 +2313,7 @@ TEST(StructuredLoopToSelectionReductionPassTest, DominanceAndPhiIssue) {
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
   ASSERT_EQ(1, ops.size());
 
   ASSERT_TRUE(ops[0]->PreconditionHolds());
@@ -2421,7 +2421,7 @@ TEST(StructuredLoopToSelectionReductionPassTest, OpLineBeforeOpPhi) {
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
   ASSERT_EQ(1, ops.size());
 
   ASSERT_TRUE(ops[0]->PreconditionHolds());
@@ -2511,7 +2511,7 @@ TEST(StructuredLoopToSelectionReductionPassTest,
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
 
   // There should be no opportunities.
   ASSERT_EQ(0, ops.size());
@@ -2555,7 +2555,7 @@ TEST(StructuredLoopToSelectionReductionPassTest,
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
 
   // There should be no opportunities.
   ASSERT_EQ(0, ops.size());
@@ -2595,7 +2595,7 @@ TEST(StructuredLoopToSelectionReductionPassTest, ContinueTargetIsSwitchTarget) {
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
 
   ASSERT_EQ(1, ops.size());
   ASSERT_TRUE(ops[0]->PreconditionHolds());
@@ -2670,7 +2670,7 @@ TEST(StructuredLoopToSelectionReductionPassTest,
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
 
   ASSERT_EQ(1, ops.size());
   ASSERT_TRUE(ops[0]->PreconditionHolds());
@@ -2733,7 +2733,7 @@ TEST(StructuredLoopToSelectionReductionPassTest, LoopBranchesStraightToMerge) {
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
 
   ASSERT_EQ(1, ops.size());
   ASSERT_TRUE(ops[0]->PreconditionHolds());
@@ -2790,7 +2790,7 @@ TEST(StructuredLoopToSelectionReductionPassTest,
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
 
   ASSERT_EQ(1, ops.size());
   ASSERT_TRUE(ops[0]->PreconditionHolds());
@@ -2874,7 +2874,7 @@ TEST(StructuredLoopToSelectionReductionPassTest, MultipleAccessChains) {
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
 
   ASSERT_EQ(1, ops.size());
   ASSERT_TRUE(ops[0]->PreconditionHolds());
@@ -2957,7 +2957,7 @@ TEST(StructuredLoopToSelectionReductionPassTest,
                OpLoopMerge %12 %13 None
                OpBranch %12
          %13 = OpLabel
-               OpBranchConditional %6 %9 %11
+               OpBranch %11
          %12 = OpLabel
                OpBranch %10
          %10 = OpLabel
@@ -2970,7 +2970,7 @@ TEST(StructuredLoopToSelectionReductionPassTest,
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
 
   ASSERT_EQ(2, ops.size());
   ASSERT_TRUE(ops[0]->PreconditionHolds());
@@ -2999,7 +2999,7 @@ TEST(StructuredLoopToSelectionReductionPassTest,
                OpLoopMerge %12 %13 None
                OpBranch %12
          %13 = OpLabel
-               OpBranchConditional %6 %9 %11
+               OpBranch %11
          %12 = OpLabel
                OpBranch %9
          %10 = OpLabel
@@ -3036,7 +3036,7 @@ TEST(StructuredLoopToSelectionReductionPassTest,
                OpSelectionMerge %12 None
                OpBranchConditional %6 %12 %12
          %13 = OpLabel
-               OpBranchConditional %6 %9 %11
+               OpBranch %11
          %12 = OpLabel
                OpBranch %9
          %10 = OpLabel
@@ -3050,8 +3050,7 @@ TEST(StructuredLoopToSelectionReductionPassTest,
 
 TEST(StructuredLoopToSelectionReductionPassTest,
      UnreachableInnerLoopContinueBranchingToOuterLoopMerge2) {
-  // In this test, the branch to the outer loop merge from the inner loop's
-  // continue is part of a structured selection.
+  // In this test, the unreachable continue is composed of multiple blocks.
   std::string shader = R"(
                OpCapability Shader
           %1 = OpExtInstImport "GLSL.std.450"
@@ -3073,8 +3072,7 @@ TEST(StructuredLoopToSelectionReductionPassTest,
                OpLoopMerge %12 %13 None
                OpBranch %12
          %13 = OpLabel
-               OpSelectionMerge %14 None
-               OpBranchConditional %6 %9 %14
+               OpBranch %14
          %14 = OpLabel
                OpBranch %11
          %12 = OpLabel
@@ -3089,7 +3087,7 @@ TEST(StructuredLoopToSelectionReductionPassTest,
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
 
   ASSERT_EQ(2, ops.size());
   ASSERT_TRUE(ops[0]->PreconditionHolds());
@@ -3118,8 +3116,7 @@ TEST(StructuredLoopToSelectionReductionPassTest,
                OpLoopMerge %12 %13 None
                OpBranch %12
          %13 = OpLabel
-               OpSelectionMerge %14 None
-               OpBranchConditional %6 %9 %14
+               OpBranch %14
          %14 = OpLabel
                OpBranch %11
          %12 = OpLabel
@@ -3158,8 +3155,7 @@ TEST(StructuredLoopToSelectionReductionPassTest,
                OpSelectionMerge %12 None
                OpBranchConditional %6 %12 %12
          %13 = OpLabel
-               OpSelectionMerge %14 None
-               OpBranchConditional %6 %9 %14
+               OpBranch %14
          %14 = OpLabel
                OpBranch %11
          %12 = OpLabel
@@ -3209,7 +3205,7 @@ TEST(StructuredLoopToSelectionReductionPassTest,
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                 .GetAvailableOpportunities(context.get());
+                 .GetAvailableOpportunities(context.get(), 0);
 
   // We cannot transform the inner loop due to its header jumping straight to
   // the outer loop merge (the inner loop's merge does not post-dominate its
@@ -3254,7 +3250,7 @@ TEST(StructuredLoopToSelectionReductionPassTest,
 
   // Now look again for more opportunities.
   ops = StructuredLoopToSelectionReductionOpportunityFinder()
-            .GetAvailableOpportunities(context.get());
+            .GetAvailableOpportunities(context.get(), 0);
 
   // What was the inner loop should now be transformable, as the jump to the
   // outer loop's merge has been redirected.
@@ -3422,7 +3418,7 @@ TEST(StructuredLoopToSelectionReductionPassTest, LongAccessChains) {
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                 .GetAvailableOpportunities(context.get());
+                 .GetAvailableOpportunities(context.get(), 0);
 
   ASSERT_EQ(1, ops.size());
   ASSERT_TRUE(ops[0]->PreconditionHolds());
@@ -3513,7 +3509,7 @@ TEST(StructuredLoopToSelectionReductionPassTest, LoopyShaderWithOpDecorate) {
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
   ASSERT_EQ(1, ops.size());
 
   ASSERT_TRUE(ops[0]->PreconditionHolds());
@@ -3619,7 +3615,7 @@ TEST(StructuredLoopToSelectionReductionPassTest,
   const auto env = SPV_ENV_UNIVERSAL_1_3;
   const auto context = BuildModule(env, nullptr, shader, kReduceAssembleOption);
   const auto ops = StructuredLoopToSelectionReductionOpportunityFinder()
-                       .GetAvailableOpportunities(context.get());
+                       .GetAvailableOpportunities(context.get(), 0);
   ASSERT_EQ(0, ops.size());
 }
 

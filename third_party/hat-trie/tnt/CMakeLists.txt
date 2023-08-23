@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.19)
 project(trie)
 
 set(TARGET trie)
@@ -21,8 +21,3 @@ include_directories(${OUR_DIR}/tsl)
 add_library(${TARGET} INTERFACE)
 target_sources(${TARGET} INTERFACE ${PUBLIC_HDRS})
 target_include_directories(${TARGET} INTERFACE ${OUR_DIR})
-
-# ==================================================================================================
-# Installation
-# ==================================================================================================
-install(FILES ${PUBLIC_HDRS} DESTINATION include/${TARGET})

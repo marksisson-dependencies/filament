@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.19)
 project(civetweb)
 
 set(OUR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..)
@@ -28,7 +28,10 @@ add_definitions(-DUSE_WEBSOCKET)
 add_library(${TARGET} STATIC ${PRIVATE_HDRS} ${PUBLIC_HDRS} ${SRCS})
 
 target_include_directories(${TARGET} PUBLIC ${PUBLIC_HDR_DIR})
+set_target_properties(${TARGET} PROPERTIES FOLDER ThirdParty)
 
 target_link_libraries(${TARGET} ${CMAKE_DL_LIBS})
 
 target_compile_options(${TARGET} PRIVATE $<$<PLATFORM_ID:Linux>:-fPIC>)
+
+install(TARGETS ${TARGET} ARCHIVE DESTINATION lib/${DIST_DIR})

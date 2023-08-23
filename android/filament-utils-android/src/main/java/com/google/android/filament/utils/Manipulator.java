@@ -32,7 +32,9 @@ import androidx.annotation.Size;
  * @see Bookmark
  */
 public class Manipulator {
-    private long mNativeObject;
+    private static final Mode[] sModeValues = Mode.values();
+
+    private final long mNativeObject;
 
     private Manipulator(long nativeIndexBuffer) {
         mNativeObject = nativeIndexBuffer;
@@ -199,7 +201,7 @@ public class Manipulator {
          * @return this <code>Builder</code> object for chaining calls
          */
         public Builder flightStartPosition(float x, float y, float z) {
-            nFlightStartPosition(mNativeBuilder, x, y, z);
+            nBuilderFlightStartPosition(mNativeBuilder, x, y, z);
             return this;
         }
 
@@ -209,7 +211,7 @@ public class Manipulator {
          * @return this <code>Builder</code> object for chaining calls
          */
         public Builder flightStartOrientation(float pitch, float yaw) {
-            nFlightStartOrientation(mNativeBuilder, pitch, yaw);
+            nBuilderFlightStartOrientation(mNativeBuilder, pitch, yaw);
             return this;
         }
 
@@ -220,7 +222,7 @@ public class Manipulator {
          * @return this <code>Builder</code> object for chaining calls
          */
         public Builder flightMaxMoveSpeed(float maxSpeed) {
-            nFlightMaxMoveSpeed(mNativeBuilder, maxSpeed);
+            nBuilderFlightMaxMoveSpeed(mNativeBuilder, maxSpeed);
             return this;
         }
 
@@ -231,7 +233,7 @@ public class Manipulator {
          * @return this <code>Builder</code> object for chaining calls
          */
         public Builder flightSpeedSteps(int steps) {
-            nFlightSpeedSteps(mNativeBuilder, steps);
+            nBuilderFlightSpeedSteps(mNativeBuilder, steps);
             return this;
         }
 
@@ -242,7 +244,7 @@ public class Manipulator {
         * @return this <code>Builder</code> object for chaining calls
         */
         public Builder flightPanSpeed(float x, float y) {
-            nFlightPanSpeed(mNativeBuilder, x, y);
+            nBuilderFlightPanSpeed(mNativeBuilder, x, y);
             return this;
         }
 
@@ -255,7 +257,7 @@ public class Manipulator {
         * @return this <code>Builder</code> object for chaining calls
         */
         public Builder flightMoveDamping(float damping) {
-            nFlightMoveDamping(mNativeBuilder, damping);
+            nBuilderFlightMoveDamping(mNativeBuilder, damping);
             return this;
         }
 
@@ -320,7 +322,7 @@ public class Manipulator {
     /**
      * Gets the immutable mode of the manipulator.
      */
-    public Mode getMode() { return Mode.values()[nGetMode(mNativeObject)]; }
+    public Mode getMode() { return sModeValues[nGetMode(mNativeObject)]; }
 
     /**
      * Sets the viewport dimensions in terms of pixels.
@@ -474,12 +476,12 @@ public class Manipulator {
     private static native void nBuilderFarPlane(long nativeBuilder, float distance);
     private static native void nBuilderMapExtent(long nativeBuilder, float width, float height);
     private static native void nBuilderMapMinDistance(long nativeBuilder, float arg);
-    private static native void nFlightStartPosition(long nativeBuilder, float x, float y, float z);
-    private static native void nFlightStartOrientation(long nativeBuilder, float pitch, float yaw);
-    private static native void nFlightMaxMoveSpeed(long nativeBuilder, float maxSpeed);
-    private static native void nFlightSpeedSteps(long nativeBuilder, int steps);
-    private static native void nFlightPanSpeed(long nativeBuilder, float x, float y);
-    private static native void nFlightMoveDamping(long nativeBuilder, float damping);
+    private static native void nBuilderFlightStartPosition(long nativeBuilder, float x, float y, float z);
+    private static native void nBuilderFlightStartOrientation(long nativeBuilder, float pitch, float yaw);
+    private static native void nBuilderFlightMaxMoveSpeed(long nativeBuilder, float maxSpeed);
+    private static native void nBuilderFlightSpeedSteps(long nativeBuilder, int steps);
+    private static native void nBuilderFlightPanSpeed(long nativeBuilder, float x, float y);
+    private static native void nBuilderFlightMoveDamping(long nativeBuilder, float damping);
     private static native void nBuilderGroundPlane(long nativeBuilder, float a, float b, float c, float d);
     private static native long nBuilderBuild(long nativeBuilder, int mode);
 

@@ -32,6 +32,9 @@ git commit && git tag -a v{XX}.{YY}.{ZZ}
 6. Push your change to GitHub, then make a GitHub Release associated with your new tag.
 7. Perform a "dry run" of the npm packaging process:
 
+:bangbang: | If there is a material change, be sure to update the live demos!
+:---: | :---
+
 ```
 cd out/cmake-webgl-release/web/filament-js
 npm publish --dry-run
@@ -42,3 +45,10 @@ do `npm publish`.
 [yarn]: https://yarnpkg.com
 [unpkg]: https://unpkg.com
 [jsdelivr]: https://www.jsdelivr.com/
+
+9. Update the live drag-and-drop viewer as follows:
+
+   1. Edit the pinned Filament version in the `<script>` tag in `docs/viewer/index.html`.
+   2. Copy `web/filament-js/filament-viewer.js` to `docs/viewer`. To keep life simple, we do not
+      bother minifying this file.
+   3. Push these changes to GitHub and test the site: `https://google.github.io/filament/viewer/`.

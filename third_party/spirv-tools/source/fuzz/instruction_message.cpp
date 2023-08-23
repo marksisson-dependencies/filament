@@ -20,10 +20,10 @@ namespace spvtools {
 namespace fuzz {
 
 protobufs::Instruction MakeInstructionMessage(
-    SpvOp opcode, uint32_t result_type_id, uint32_t result_id,
+    spv::Op opcode, uint32_t result_type_id, uint32_t result_id,
     const opt::Instruction::OperandList& input_operands) {
   protobufs::Instruction result;
-  result.set_opcode(opcode);
+  result.set_opcode(uint32_t(opcode));
   result.set_result_type_id(result_type_id);
   result.set_result_id(result_id);
   for (auto& operand : input_operands) {
@@ -34,6 +34,18 @@ protobufs::Instruction MakeInstructionMessage(
     }
   }
   return result;
+}
+
+protobufs::Instruction MakeInstructionMessage(
+    const opt::Instruction* instruction) {
+  opt::Instruction::OperandList input_operands;
+  for (uint32_t input_operand_index = 0;
+       input_operand_index < instruction->NumInOperands();
+       input_operand_index++) {
+    input_operands.push_back(instruction->GetInOperand(input_operand_index));
+  }
+  return MakeInstructionMessage(instruction->opcode(), instruction->type_id(),
+                                instruction->result_id(), input_operands);
 }
 
 std::unique_ptr<opt::Instruction> InstructionFromMessage(
@@ -59,7 +71,7 @@ std::unique_ptr<opt::Instruction> InstructionFromMessage(
   }
   // Create and return the instruction.
   return MakeUnique<opt::Instruction>(
-      ir_context, static_cast<SpvOp>(instruction_message.opcode()),
+      ir_context, static_cast<spv::Op>(instruction_message.opcode()),
       instruction_message.result_type_id(), instruction_message.result_id(),
       in_operands);
 }

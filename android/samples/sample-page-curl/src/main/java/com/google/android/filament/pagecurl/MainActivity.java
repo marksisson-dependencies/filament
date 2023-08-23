@@ -37,6 +37,7 @@ import com.google.android.filament.Camera;
 import com.google.android.filament.Engine;
 import com.google.android.filament.Entity;
 import com.google.android.filament.EntityManager;
+import com.google.android.filament.Fence;
 import com.google.android.filament.Filament;
 import com.google.android.filament.IndirectLight;
 import com.google.android.filament.LightManager;
@@ -49,6 +50,7 @@ import com.google.android.filament.TransformManager;
 import com.google.android.filament.Viewport;
 
 import com.google.android.filament.android.DisplayHelper;
+import com.google.android.filament.android.FilamentHelper;
 import com.google.android.filament.android.TextureHelper;
 import com.google.android.filament.android.UiHelper;
 
@@ -70,11 +72,11 @@ public class MainActivity extends Activity
     private Page mPage;
     private PageMaterials mPageMaterials;
     private Scene mScene;
-    private Texture[] mTextures = new Texture[2];
+    private final Texture[] mTextures = new Texture[2];
     private @Entity int mLight;
     private IndirectLight mIndirectLight;
 
-    private float[] mTouchDownPoint = new float[2];
+    private final float[] mTouchDownPoint = new float[2];
     private float mTouchDownValue = 0;
     private float mPageAnimationRadians = 0;
     private float mPageAnimationValue = 0;
@@ -107,6 +109,7 @@ public class MainActivity extends Activity
             mCamera.setProjection(60.0, aspect, 1.0, 2000.0, Camera.Fov.HORIZONTAL);
         }
         mView.setViewport(new Viewport(0, 0, width, height));
+        FilamentHelper.synchronizePendingFrames(mEngine);
     }
 
     @Override
@@ -148,7 +151,7 @@ public class MainActivity extends Activity
         mRenderer = mEngine.createRenderer();
         mScene = mEngine.createScene();
         mView = mEngine.createView();
-        mCamera = mEngine.createCamera();
+        mCamera = mEngine.createCamera(mEngine.getEntityManager().create());
 
         mCamera.lookAt(0, 0, 3, 0, 0, 0, 0, 1, 0);
 
@@ -223,9 +226,10 @@ public class MainActivity extends Activity
 
         mEngine.destroyView(mView);
         mEngine.destroyScene(mScene);
-        mEngine.destroyCamera(mCamera);
+        mEngine.destroyCameraComponent(mCamera.getEntity());
 
         EntityManager.get().destroy(mPage.renderable);
+        EntityManager.get().destroy(mCamera.getEntity());
 
         mEngine.destroy();
     }

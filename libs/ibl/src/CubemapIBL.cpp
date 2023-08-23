@@ -280,7 +280,7 @@ static float UTILS_UNUSED VisibilityAshikhmin(float NoV, float NoL, float /*a*/)
  *              N  h
  *
  *                  N       4
- *    Er() = ------------- --- ∑ V(v) <n•l>
+ *    Er() = ------------- --- ∑ L(v) <n•l>
  *             4 ∑ <n•l>    N
  *
  *
@@ -292,10 +292,19 @@ static float UTILS_UNUSED VisibilityAshikhmin(float NoV, float NoL, float /*a*/)
  *
  */
 
+UTILS_ALWAYS_INLINE
 void CubemapIBL::roughnessFilter(
         utils::JobSystem& js, Cubemap& dst, const std::vector<Cubemap>& levels,
         float linearRoughness, size_t maxNumSamples, math::float3 mirror, bool prefilter,
-        Progress updater)
+        Progress updater, void* userdata) {
+    roughnessFilter(js, dst, { levels.data(), uint32_t(levels.size()) },
+            linearRoughness, maxNumSamples, mirror, prefilter, updater, userdata);
+}
+
+void CubemapIBL::roughnessFilter(
+        utils::JobSystem& js, Cubemap& dst, const utils::Slice<Cubemap>& levels,
+        float linearRoughness, size_t maxNumSamples, math::float3 mirror, bool prefilter,
+        Progress updater, void* userdata)
 {
     const float numSamples = maxNumSamples;
     const float inumSamples = 1.0f / numSamples;
@@ -311,7 +320,7 @@ void CubemapIBL::roughnessFilter(
                 (CubemapUtils::EmptyState&, size_t y, Cubemap::Face f, Cubemap::Texel* data, size_t dim) {
                     if (UTILS_UNLIKELY(updater)) {
                         size_t p = progress.fetch_add(1, std::memory_order_relaxed) + 1;
-                        updater(0, (float)p / ((float) dim * 6.0f));
+                        updater(0, (float)p / ((float) dim * 6.0f), userdata);
                     }
                     const Cubemap& cm = levels[0];
                     for (size_t x = 0; x < dim; ++x, ++data) {
@@ -417,7 +426,7 @@ void CubemapIBL::roughnessFilter(
             Cubemap::Face f, Cubemap::Texel* data, size_t dim) {
         if (UTILS_UNLIKELY(updater)) {
             size_t p = progress.fetch_add(1, std::memory_order_relaxed) + 1;
-            updater(0, (float) p / ((float) dim * 6.0f));
+            updater(0, (float) p / ((float) dim * 6.0f), userdata);
         }
         mat3 R;
         const size_t numSamples = cache.size();
@@ -532,7 +541,7 @@ void CubemapIBL::roughnessFilter(
  *            N   l        n•l
  *
  *
- *  To avoid to multiply by 1/PI in the shader, we do it here, which simplifies to:
+ *  To avoid multiplying by 1/PI in the shader, we do it here, which simplifies to:
  *
  *  +----------------------+
  *  |          1           |
@@ -543,7 +552,7 @@ void CubemapIBL::roughnessFilter(
  */
 
 void CubemapIBL::diffuseIrradiance(JobSystem& js, Cubemap& dst, const std::vector<Cubemap>& levels,
-        size_t maxNumSamples, CubemapIBL::Progress updater)
+        size_t maxNumSamples, CubemapIBL::Progress updater, void* userdata)
 {
     const float numSamples = maxNumSamples;
     const float inumSamples = 1.0f / numSamples;
@@ -595,7 +604,7 @@ void CubemapIBL::diffuseIrradiance(JobSystem& js, Cubemap& dst, const std::vecto
 
         if (updater) {
             size_t p = progress.fetch_add(1, std::memory_order_relaxed) + 1;
-            updater(0, (float)p / ((float) dim * 6.0f));
+            updater(0, (float)p / ((float) dim * 6.0f), userdata);
         }
 
         mat3 R;
@@ -1013,7 +1022,7 @@ void CubemapIBL::DFG(JobSystem& js, Image& dst, bool multiscatter, bool cloth) {
                     // here we're using ^2, but other mappings are possible.
                     // ==> coord = sqrt(linear_roughness)
                     const float linear_roughness = coord * coord;
-                    for (size_t x = 0; x < height; x++, data++) {
+                    for (size_t x = 0; x < width; x++, data++) {
                         // const float NoV = float(x) / (width-1);
                         const float NoV = saturate((x + 0.5f) / width);
                         float3 r = { dfvFunction(NoV, linear_roughness, 1024), 0 };

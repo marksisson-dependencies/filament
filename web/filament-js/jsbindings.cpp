@@ -34,6 +34,7 @@
 
 #include <filameshio/MeshReader.h>
 
+#include <filament/BufferObject.h>
 #include <filament/Camera.h>
 #include <filament/ColorGrading.h>
 #include <filament/Engine.h>
@@ -57,16 +58,20 @@
 
 #include <geometry/SurfaceOrientation.h>
 
+#include <viewer/ViewerGui.h>
+
 #include <gltfio/Animator.h>
 #include <gltfio/AssetLoader.h>
 #include <gltfio/FilamentAsset.h>
 #include <gltfio/FilamentInstance.h>
-#include <gltfio/Image.h>
 #include <gltfio/MaterialProvider.h>
 #include <gltfio/ResourceLoader.h>
+#include <gltfio/TextureProvider.h>
 
-#include <image/KtxBundle.h>
-#include <image/KtxUtility.h>
+#include <materials/uberarchive.h>
+
+#include <ktxreader/Ktx1Reader.h>
+#include <ktxreader/Ktx2Reader.h>
 
 #include <math/vec2.h>
 #include <math/vec3.h>
@@ -76,6 +81,8 @@
 #include <utils/EntityManager.h>
 #include <utils/NameComponentManager.h>
 #include <utils/Log.h>
+
+#include <stb_image.h>
 
 #include <emscripten.h>
 #include <emscripten/bind.h>
@@ -88,8 +95,11 @@ using namespace emscripten;
 using namespace filament;
 using namespace filamesh;
 using namespace geometry;
-using namespace gltfio;
+using namespace filament::gltfio;
 using namespace image;
+using namespace ktxreader;
+
+using namespace filament::viewer;
 
 namespace em = emscripten;
 
@@ -113,6 +123,7 @@ namespace emscripten {
     namespace internal {
         BIND(Animator)
         BIND(AssetLoader)
+        BIND(BufferObject)
         BIND(Camera)
         BIND(ColorGrading)
         BIND(Engine)
@@ -134,53 +145,6 @@ namespace emscripten {
         BIND(utils::EntityManager)
         BIND(VertexBuffer)
         BIND(View)
-
-        // embind is missing a template definition for "noexcept" methods, so
-        // we're supplying it ourselves while waiting for the upstream fix.
-        template<typename ClassType, typename ReturnType, typename... Args>
-        struct RegisterClassMethod<ReturnType (ClassType::*)(Args...) noexcept> {
-
-            template <typename CT, typename... Policies>
-            static void invoke(const char* methodName,
-                               ReturnType (ClassType::*memberFunction)(Args...) noexcept)  {
-                auto invoker = &MethodInvoker<decltype(memberFunction), ReturnType, ClassType*, Args...>::invoke;
-
-                typename WithPolicies<Policies...>::template ArgTypeList<ReturnType, AllowedRawPointer<ClassType>, Args...> args;
-                _embind_register_class_function(
-                    TypeID<ClassType>::get(),
-                    methodName,
-                    args.getCount(),
-                    args.getTypes(),
-                    getSignature(invoker),
-                    reinterpret_cast<GenericFunction>(invoker),
-                    getContext(memberFunction),
-                    isPureVirtual<Policies...>::value);
-            }
-        };
-
-        // embind is missing a template definition for "const noexcept" methods, so
-        // we're supplying it ourselves while waiting for the upstream fix.
-        template<typename ClassType, typename ReturnType, typename... Args>
-        struct RegisterClassMethod<ReturnType (ClassType::*)(Args...) const noexcept> {
-
-            template <typename CT, typename... Policies>
-            static void invoke(const char* methodName,
-                               ReturnType (ClassType::*memberFunction)(Args...) const noexcept)  {
-                auto invoker = &MethodInvoker<decltype(memberFunction), ReturnType, const ClassType*, Args...>::invoke;
-
-                typename WithPolicies<Policies...>::template ArgTypeList<ReturnType, AllowedRawPointer<const ClassType>, Args...> args;
-                _embind_register_class_function(
-                    TypeID<ClassType>::get(),
-                    methodName,
-                    args.getCount(),
-                    args.getTypes(),
-                    getSignature(invoker),
-                    reinterpret_cast<GenericFunction>(invoker),
-                    getContext(memberFunction),
-                    isPureVirtual<Policies...>::value);
-            }
-        };
-
     }
 }
 #undef BIND
@@ -200,6 +164,7 @@ using SkyBuilder = Skybox::Builder;
 using SurfaceBuilder = SurfaceOrientation::Builder;
 using TexBuilder = Texture::Builder;
 using VertexBuilder = VertexBuffer::Builder;
+using BufferBuilder = BufferObject::Builder;
 
 // We avoid directly exposing backend::BufferDescriptor because embind does not support move
 // semantics and void* doesn't make sense to JavaScript anyway. This little wrapper class is exposed
@@ -306,6 +271,15 @@ value_array<filament::math::float4>("float4")
     .element(&filament::math::float4::z)
     .element(&filament::math::float4::w);
 
+value_array<filament::math::double2>("double2")
+    .element(&filament::math::double2::x)
+    .element(&filament::math::double2::y);
+
+value_array<filament::math::double3>("double3")
+    .element(&filament::math::double3::x)
+    .element(&filament::math::double3::y)
+    .element(&filament::math::double3::z);
+
 value_array<filament::math::double4>("double4")
     .element(&filament::math::double4::x)
     .element(&filament::math::double4::y)
@@ -342,52 +316,6 @@ value_object<filament::Renderer::ClearOptions>("Renderer$ClearOptions")
     .field("clear", &filament::Renderer::ClearOptions::clear)
     .field("discard", &filament::Renderer::ClearOptions::discard);
 
-value_object<filament::View::AmbientOcclusionOptions>("View$AmbientOcclusionOptions")
-    .field("radius", &filament::View::AmbientOcclusionOptions::radius)
-    .field("power", &filament::View::AmbientOcclusionOptions::power)
-    .field("bias", &filament::View::AmbientOcclusionOptions::bias)
-    .field("resolution", &filament::View::AmbientOcclusionOptions::resolution)
-    .field("intensity", &filament::View::AmbientOcclusionOptions::intensity)
-    .field("quality", &filament::View::AmbientOcclusionOptions::quality);
-
-value_object<filament::View::DepthOfFieldOptions>("View$DepthOfFieldOptions")
-    .field("focusDistance", &filament::View::DepthOfFieldOptions::focusDistance)
-    .field("cocScale", &filament::View::DepthOfFieldOptions::cocScale)
-    .field("maxApertureDiameter", &filament::View::DepthOfFieldOptions::maxApertureDiameter)
-    .field("enabled", &filament::View::DepthOfFieldOptions::enabled);
-
-value_object<filament::View::BloomOptions>("View$BloomOptions")
-    .field("dirtStrength", &filament::View::BloomOptions::dirtStrength)
-    .field("strength", &filament::View::BloomOptions::strength)
-    .field("resolution", &filament::View::BloomOptions::resolution)
-    .field("anamorphism", &filament::View::BloomOptions::anamorphism)
-    .field("levels", &filament::View::BloomOptions::levels)
-    .field("threshold", &filament::View::BloomOptions::threshold)
-    .field("enabled", &filament::View::BloomOptions::enabled)
-    .field("blendMode", &filament::View::BloomOptions::blendMode);
-
-// TODO: add support for dirt texture in BloomOptions.
-// Note that simply including the field in the above list causes binding errors for nullptr.
-
-value_object<filament::View::FogOptions>("View$FogOptions")
-    .field("distance", &filament::View::FogOptions::distance)
-    .field("maximumOpacity", &filament::View::FogOptions::maximumOpacity)
-    .field("height", &filament::View::FogOptions::height)
-    .field("heightFalloff", &filament::View::FogOptions::heightFalloff)
-    .field("color", &filament::View::FogOptions::color)
-    .field("density", &filament::View::FogOptions::density)
-    .field("inScatteringStart", &filament::View::FogOptions::inScatteringStart)
-    .field("inScatteringSize", &filament::View::FogOptions::inScatteringSize)
-    .field("fogColorFromIbl", &filament::View::FogOptions::fogColorFromIbl)
-    .field("enabled", &filament::View::FogOptions::enabled);
-
-value_object<filament::View::VignetteOptions>("View$VignetteOptions")
-    .field("midPoint", &filament::View::VignetteOptions::midPoint)
-    .field("roundness", &filament::View::VignetteOptions::roundness)
-    .field("feather", &filament::View::VignetteOptions::feather)
-    .field("color", &filament::View::VignetteOptions::color)
-    .field("enabled", &filament::View::VignetteOptions::enabled);
-
 value_object<LightManager::ShadowOptions>("LightManager$ShadowOptions")
     .field("mapSize", &LightManager::ShadowOptions::mapSize)
     .field("shadowCascades", &LightManager::ShadowOptions::shadowCascades)
@@ -397,6 +325,7 @@ value_object<LightManager::ShadowOptions>("LightManager$ShadowOptions")
     .field("shadowNearHint", &LightManager::ShadowOptions::shadowNearHint)
     .field("shadowFarHint", &LightManager::ShadowOptions::shadowFarHint)
     .field("stable", &LightManager::ShadowOptions::stable)
+    .field("lispsm", &LightManager::ShadowOptions::lispsm)
     .field("polygonOffsetConstant", &LightManager::ShadowOptions::polygonOffsetConstant)
     .field("polygonOffsetSlope", &LightManager::ShadowOptions::polygonOffsetSlope)
     .field("screenSpaceContactShadows", &LightManager::ShadowOptions::screenSpaceContactShadows)
@@ -439,7 +368,7 @@ using EntityVector = std::vector<utils::Entity>;
 register_vector<std::string>("RegistryKeys");
 register_vector<utils::Entity>("EntityVector");
 register_vector<FilamentInstance*>("AssetInstanceVector");
-register_vector<const MaterialInstance*>("MaterialInstanceVector");
+register_vector<MaterialInstance*>("MaterialInstanceVector");
 
 // CORE FILAMENT CLASSES
 // ---------------------
@@ -448,16 +377,39 @@ register_vector<const MaterialInstance*>("MaterialInstanceVector");
 class_<Engine>("Engine")
     .class_function("_create", (Engine* (*)()) [] {
         EM_ASM_INT({
-            const handle = GL.registerContext(Filament.glContext, Filament.glOptions);
+            const options = window.filament_glOptions;
+            const context = window.filament_glContext;
+            const handle = GL.registerContext(context, options);
+            window.filament_contextHandle = handle;
             GL.makeContextCurrent(handle);
         });
         return Engine::create();
     }, allow_raw_pointers())
+
+    .function("enableAccurateTranslations", &Engine::enableAccurateTranslations)
+
+    .function("setAutomaticInstancingEnabled", &Engine::setAutomaticInstancingEnabled)
+
+    .function("isAutomaticInstancingEnabled", &Engine::isAutomaticInstancingEnabled)
+
+    .function("getSupportedFeatureLevel", &Engine::getSupportedFeatureLevel)
+
+    .function("setActiveFeatureLevel", &Engine::setActiveFeatureLevel)
+
+    .function("getActiveFeatureLevel", &Engine::getActiveFeatureLevel)
+
+    .function("_execute", EMBIND_LAMBDA(void, (Engine* engine), {
+        EM_ASM_INT({
+            const handle = window.filament_contextHandle;
+            GL.makeContextCurrent(handle);
+        });
+        engine->execute();
+    }), allow_raw_pointers())
+
     /// destroy ::static method:: Destroys an engine instance and cleans up resources.
     /// engine ::argument:: the instance to destroy
     .class_function("destroy", (void (*)(Engine*)) []
             (Engine* engine) { Engine::destroy(&engine); }, allow_raw_pointers())
-    .function("execute", &Engine::execute)
 
     /// getTransformManager ::method::
     /// ::retval:: an instance of [TransformManager]
@@ -475,6 +427,12 @@ class_<Engine>("Engine")
     /// ::retval:: an instance of [RenderableManager]
     .function("getRenderableManager", EMBIND_LAMBDA(RenderableManager*, (Engine* engine), {
         return &engine->getRenderableManager();
+    }), allow_raw_pointers())
+
+    /// getEntityManager ::method::
+    /// ::retval:: an instance of [utils::EntityManager]
+    .function("getEntityManager", EMBIND_LAMBDA(utils::EntityManager*, (Engine* engine), {
+        return &engine->getEntityManager();
     }), allow_raw_pointers())
 
     /// createSwapChain ::method::
@@ -582,16 +540,64 @@ class_<Engine>("Engine")
     /// vb ::argument:: the [VertexBuffer] to destroy
     .function("destroyVertexBuffer", (void (*)(Engine*, VertexBuffer*)) []
             (Engine* engine, VertexBuffer* vb) { engine->destroy(vb); },
-            allow_raw_pointers());
+            allow_raw_pointers())
+
+    .function("isValidRenderer", EMBIND_LAMBDA(bool, (Engine* engine, Renderer* object), {
+                return engine->isValid(object);
+            }), allow_raw_pointers())
+    .function("isValidView", EMBIND_LAMBDA(bool, (Engine* engine, View* object), {
+                return engine->isValid(object);
+            }), allow_raw_pointers())
+    .function("isValidScene", EMBIND_LAMBDA(bool, (Engine* engine, Scene* object), {
+                return engine->isValid(object);
+            }), allow_raw_pointers())
+    .function("isValidFence", EMBIND_LAMBDA(bool, (Engine* engine, Fence* object), {
+                return engine->isValid(object);
+            }), allow_raw_pointers())
+    .function("isValidStream", EMBIND_LAMBDA(bool, (Engine* engine, Stream* object), {
+                return engine->isValid(object);
+            }), allow_raw_pointers())
+    .function("isValidIndexBuffer", EMBIND_LAMBDA(bool, (Engine* engine, IndexBuffer* object), {
+                return engine->isValid(object);
+            }), allow_raw_pointers())
+    .function("isValidVertexBuffer", EMBIND_LAMBDA(bool, (Engine* engine, VertexBuffer* object), {
+                return engine->isValid(object);
+            }), allow_raw_pointers())
+    .function("isValidSkinningBuffer", EMBIND_LAMBDA(bool, (Engine* engine, SkinningBuffer* object), {
+                return engine->isValid(object);
+            }), allow_raw_pointers())
+    .function("isValidIndirectLight", EMBIND_LAMBDA(bool, (Engine* engine, IndirectLight* object), {
+                return engine->isValid(object);
+            }), allow_raw_pointers())
+    .function("isValidMaterial", EMBIND_LAMBDA(bool, (Engine* engine, Material* object), {
+                return engine->isValid(object);
+            }), allow_raw_pointers())
+    .function("isValidSkybox", EMBIND_LAMBDA(bool, (Engine* engine, Skybox* object), {
+                return engine->isValid(object);
+            }), allow_raw_pointers())
+    .function("isValidColorGrading", EMBIND_LAMBDA(bool, (Engine* engine, ColorGrading* object), {
+                return engine->isValid(object);
+            }), allow_raw_pointers())
+    .function("isValidTexture", EMBIND_LAMBDA(bool, (Engine* engine, Texture* object), {
+                return engine->isValid(object);
+            }), allow_raw_pointers())
+    .function("isValidRenderTarget", EMBIND_LAMBDA(bool, (Engine* engine, RenderTarget* object), {
+                return engine->isValid(object);
+            }), allow_raw_pointers())
+    .function("isValidSwapChain", EMBIND_LAMBDA(bool, (Engine* engine, SwapChain* object), {
+                return engine->isValid(object);
+            }), allow_raw_pointers());
 
 /// SwapChain ::core class:: Represents the platform's native rendering surface.
 /// See also the [Engine] methods `createSwapChain` and `destroySwapChain`.
-class_<SwapChain>("SwapChain");
+class_<SwapChain>("SwapChain")
+        .class_function("isSRGBSwapChainSupported", &SwapChain::isSRGBSwapChainSupported);
 
 /// Renderer ::core class:: Represents the platform's native window.
 /// See also the [Engine] methods `createRenderer` and `destroyRenderer`.
 class_<Renderer>("Renderer")
     .function("renderView", &Renderer::render, allow_raw_pointers())
+    .function("renderStandaloneView", &Renderer::renderStandaloneView, allow_raw_pointers())
     /// render ::method:: requests rendering for a single frame on the given [View]
     /// swapChain ::argument:: the [SwapChain] corresponding to the canvas
     /// view ::argument:: the [View] corresponding to the canvas
@@ -613,28 +619,52 @@ class_<Renderer>("Renderer")
 /// A view is associated with a particular [Scene], [Camera], and viewport.
 /// See also the [Engine] methods `createView` and `destroyView`.
 class_<View>("View")
+    .function("pick", EMBIND_LAMBDA(void, (View* self, uint32_t x, uint32_t y, val cb), {
+        self->pick(x, y, [cb](const View::PickingQueryResult& result) {
+            EM_ASM_ARGS({
+                const fn = Emval.toValue($0);
+                fn({
+                    "renderable": Emval.toValue($1),
+                    "depth": $2,
+                    "fragCoords": [$3, $4, $5],
+                });
+            }, cb.as_handle(), val(result.renderable).as_handle(), result.depth,
+                result.fragCoords.x, result.fragCoords.y, result.fragCoords.z);
+        });
+    }), allow_raw_pointers())
+
     .function("setScene", &View::setScene, allow_raw_pointers())
     .function("setCamera", &View::setCamera, allow_raw_pointers())
     .function("setColorGrading", &View::setColorGrading, allow_raw_pointers())
     .function("setBlendMode", &View::setBlendMode)
     .function("getBlendMode", &View::getBlendMode)
-    .function("getViewport", &View::getViewport)
     .function("setViewport", &View::setViewport)
+    .function("getViewport", &View::getViewport)
     .function("setVisibleLayers", &View::setVisibleLayers)
     .function("setPostProcessingEnabled", &View::setPostProcessingEnabled)
     .function("_setAmbientOcclusionOptions", &View::setAmbientOcclusionOptions)
     .function("_setDepthOfFieldOptions", &View::setDepthOfFieldOptions)
+    .function("_setMultiSampleAntiAliasingOptions", &View::setMultiSampleAntiAliasingOptions)
+    .function("_setTemporalAntiAliasingOptions", &View::setTemporalAntiAliasingOptions)
+    .function("_setScreenSpaceReflectionsOptions", &View::setScreenSpaceReflectionsOptions)
     .function("_setBloomOptions", &View::setBloomOptions)
     .function("_setFogOptions", &View::setFogOptions)
     .function("_setVignetteOptions", &View::setVignetteOptions)
+    .function("_setGuardBandOptions", &View::setGuardBandOptions)
     .function("setAmbientOcclusion", &View::setAmbientOcclusion)
     .function("getAmbientOcclusion", &View::getAmbientOcclusion)
     .function("setAntiAliasing", &View::setAntiAliasing)
     .function("getAntiAliasing", &View::getAntiAliasing)
     .function("setSampleCount", &View::setSampleCount)
+    .function("getSampleCount", &View::getSampleCount)
     .function("setRenderTarget", EMBIND_LAMBDA(void, (View* self, RenderTarget* renderTarget), {
         self->setRenderTarget(renderTarget);
-    }), allow_raw_pointers());
+    }), allow_raw_pointers())
+    .function("setStencilBufferEnabled", &View::setStencilBufferEnabled)
+    .function("isStencilBufferEnabled", &View::isStencilBufferEnabled)
+    .function("setMaterialGlobal", &View::setMaterialGlobal)
+    .function("getMaterialGlobal", &View::getMaterialGlobal)
+    .function("getFogEntity", &View::getFogEntity);
 
 /// Scene ::core class:: Flat container of renderables and lights.
 /// See also the [Engine] methods `createScene` and `destroyScene`.
@@ -652,7 +682,9 @@ class_<Scene>("Scene")
     .function("hasEntity", &Scene::hasEntity)
     .function("remove", &Scene::remove)
     .function("setSkybox", &Scene::setSkybox, allow_raw_pointers())
+    .function("getSkybox", &Scene::getSkybox, allow_raw_pointers())
     .function("setIndirectLight", &Scene::setIndirectLight, allow_raw_pointers())
+    .function("getIndirectLight", &Scene::getIndirectLight, allow_raw_pointers())
     .function("getRenderableCount", &Scene::getRenderableCount)
     .function("getLightCount", &Scene::getLightCount);
 
@@ -696,7 +728,9 @@ class_<Camera>("Camera")
         self->setCustomProjection(filament::math::mat4(m.m), near, far);
     }), allow_raw_pointers())
 
-    .function("setScaling", &Camera::setScaling)
+    .function("setScaling", EMBIND_LAMBDA(void, (Camera* self, math::double2 scaling), {
+        self->setScaling(scaling);
+    }), allow_raw_pointers())
 
     .function("getProjectionMatrix", EMBIND_LAMBDA(flatmat4, (Camera* self), {
         return flatmat4 { filament::math::mat4f(self->getProjectionMatrix()) };
@@ -723,11 +757,11 @@ class_<Camera>("Camera")
     }), allow_raw_pointers())
 
     .function("getModelMatrix", EMBIND_LAMBDA(flatmat4, (Camera* self), {
-        return flatmat4 { self->getModelMatrix() };
+        return flatmat4 { (filament::math::mat4f)self->getModelMatrix() };
     }), allow_raw_pointers())
 
     .function("getViewMatrix", EMBIND_LAMBDA(flatmat4, (Camera* self), {
-        return flatmat4 { self->getViewMatrix() };
+        return flatmat4 { (filament::math::mat4f)self->getViewMatrix() };
     }), allow_raw_pointers())
 
     .function("getPosition", &Camera::getPosition)
@@ -740,6 +774,12 @@ class_<Camera>("Camera")
     .function("getAperture", &Camera::getAperture)
     .function("getShutterSpeed", &Camera::getShutterSpeed)
     .function("getSensitivity", &Camera::getSensitivity)
+    .function("setFocusDistance", &Camera::setFocusDistance)
+    .function("getFocusDistance", &Camera::getFocusDistance)
+    .function("getFocalLength", &Camera::getFocalLength)
+
+    .class_function("computeEffectiveFocalLength", &Camera::computeEffectiveFocalLength)
+    .class_function("computeEffectiveFov", &Camera::computeEffectiveFov)
 
     .class_function("inverseProjection",  (flatmat4 (*)(flatmat4)) [] (flatmat4 m) {
         return flatmat4 { filament::math::mat4f(Camera::inverseProjection(m.m)) };
@@ -758,9 +798,38 @@ class_<ColorBuilder>("ColorGrading$Builder")
         return &builder->quality(ql);
     })
 
+    .BUILDER_FUNCTION("format", ColorBuilder, (ColorBuilder* builder,
+            ColorGrading::LutFormat format), {
+        return &builder->format(format);
+    })
+
+    .BUILDER_FUNCTION("dimensions", ColorBuilder, (ColorBuilder* builder, uint8_t dim), {
+        return &builder->dimensions(dim);
+    })
+
     .BUILDER_FUNCTION("toneMapping", ColorBuilder, (ColorBuilder* builder,
             ColorGrading::ToneMapping tm), {
         return &builder->toneMapping(tm);
+    })
+
+    .BUILDER_FUNCTION("luminanceScaling", ColorBuilder, (ColorBuilder* builder,
+            bool luminanceScaling), {
+        return &builder->luminanceScaling(luminanceScaling);
+    })
+
+    .BUILDER_FUNCTION("gamutMapping", ColorBuilder, (ColorBuilder* builder,
+            bool gamutMapping), {
+        return &builder->gamutMapping(gamutMapping);
+    })
+
+    .BUILDER_FUNCTION("exposure", ColorBuilder, (ColorBuilder* builder,
+            float exposure), {
+        return &builder->exposure(exposure);
+    })
+
+    .BUILDER_FUNCTION("nightAdaptation", ColorBuilder, (ColorBuilder* builder,
+            float adaptation), {
+        return &builder->nightAdaptation(adaptation);
     })
 
     .BUILDER_FUNCTION("whiteBalance", ColorBuilder, (ColorBuilder* builder, float temp,
@@ -876,14 +945,28 @@ class_<RenderableBuilder>("RenderableManager$Builder")
     .BUILDER_FUNCTION("priority", RenderableBuilder, (RenderableBuilder* builder, uint8_t value), {
         return &builder->priority(value); })
 
+    .BUILDER_FUNCTION("channel", RenderableBuilder, (RenderableBuilder* builder, uint8_t value), {
+        return &builder->channel(value); })
+
     .BUILDER_FUNCTION("culling", RenderableBuilder, (RenderableBuilder* builder, bool enable), {
         return &builder->culling(enable); })
+
+    .BUILDER_FUNCTION("lightChannel", RenderableBuilder,
+            (RenderableBuilder* builder, unsigned int channel, bool enable), {
+        return &builder->lightChannel(channel, enable); })
 
     .BUILDER_FUNCTION("castShadows", RenderableBuilder, (RenderableBuilder* builder, bool enable), {
         return &builder->castShadows(enable); })
 
     .BUILDER_FUNCTION("receiveShadows", RenderableBuilder, (RenderableBuilder* builder, bool enable), {
         return &builder->receiveShadows(enable); })
+
+    .BUILDER_FUNCTION("screenSpaceContactShadows", RenderableBuilder,
+            (RenderableBuilder* builder, bool enable), {
+        return &builder->screenSpaceContactShadows(enable); })
+
+    .BUILDER_FUNCTION("fog", RenderableBuilder, (RenderableBuilder* builder, bool enable), {
+        return &builder->fog(enable); })
 
     .BUILDER_FUNCTION("skinning", RenderableBuilder, (RenderableBuilder* builder, size_t boneCount), {
         return &builder->skinning(boneCount); })
@@ -915,6 +998,14 @@ class_<RenderableBuilder>("RenderableManager$Builder")
             (RenderableBuilder* builder, size_t index, uint16_t order), {
         return &builder->blendOrder(index, order); })
 
+    .BUILDER_FUNCTION("globalBlendOrderEnabled", RenderableBuilder,
+            (RenderableBuilder* builder, size_t index, bool enabled), {
+        return &builder->globalBlendOrderEnabled(index, enabled); })
+
+    .BUILDER_FUNCTION("instances", RenderableBuilder,
+            (RenderableBuilder* builder, size_t instanceCount), {
+        return &builder->instances(instanceCount); })
+
     .function("_build", EMBIND_LAMBDA(int, (RenderableBuilder* builder,
             Engine* engine, utils::Entity entity), {
         return (int) builder->build(*engine, entity);
@@ -937,10 +1028,15 @@ class_<RenderableManager>("RenderableManager")
     .function("setAxisAlignedBoundingBox", &RenderableManager::setAxisAlignedBoundingBox)
     .function("setLayerMask", &RenderableManager::setLayerMask)
     .function("setPriority", &RenderableManager::setPriority)
+    .function("setChannel", &RenderableManager::setChannel)
     .function("setCastShadows", &RenderableManager::setCastShadows)
     .function("setReceiveShadows", &RenderableManager::setReceiveShadows)
     .function("isShadowCaster", &RenderableManager::isShadowCaster)
     .function("isShadowReceiver", &RenderableManager::isShadowReceiver)
+    .function("setLightChannel", &RenderableManager::setLightChannel)
+    .function("getLightChannel", &RenderableManager::getLightChannel)
+    .function("setFogEnabled", &RenderableManager::setFogEnabled)
+    .function("getFogEnabled", &RenderableManager::getFogEnabled)
 
     .function("setBones", EMBIND_LAMBDA(void, (RenderableManager* self,
             RenderableManager::Instance instance, emscripten::val transforms, size_t offset), {
@@ -962,10 +1058,14 @@ class_<RenderableManager>("RenderableManager")
         self->setBones(instance, bones.data(), bones.size(), offset);
     }), allow_raw_pointers())
 
-    // NOTE: this cannot take a float4 due to a binding issue.
     .function("setMorphWeights", EMBIND_LAMBDA(void, (RenderableManager* self,
-            RenderableManager::Instance instance, float x, float y, float z, float w), {
-        self->setMorphWeights(instance, {x, y, z, w});
+            RenderableManager::Instance instance, emscripten::val weights), {
+        auto nfloats = weights["length"].as<size_t>();
+        std::vector<float> floats(nfloats);
+        for (size_t i = 0; i < nfloats; i++) {
+            floats[i] = weights[i].as<float>();
+        }
+        self->setMorphWeights(instance, floats.data(), nfloats);
     }), allow_raw_pointers())
 
     .function("getAxisAlignedBoundingBox", &RenderableManager::getAxisAlignedBoundingBox)
@@ -982,13 +1082,9 @@ class_<RenderableManager>("RenderableManager")
         self->setGeometryAt(instance, primitiveIndex, type, vertices, indices, offset, count);
     }), allow_raw_pointers())
 
-    .function("setGeometryRangeAt", EMBIND_LAMBDA(void, (RenderableManager* self,
-            RenderableManager::Instance instance, size_t primitiveIndex,
-            RenderableManager::PrimitiveType type, size_t offset, size_t count), {
-        self->setGeometryAt(instance, primitiveIndex, type, offset, count);
-    }), allow_raw_pointers())
-
     .function("setBlendOrderAt", &RenderableManager::setBlendOrderAt)
+
+    .function("setGlobalBlendOrderEnabledAt", &RenderableManager::setGlobalBlendOrderEnabledAt)
 
     .function("getEnabledAttributesAt", EMBIND_LAMBDA(uint32_t, (RenderableManager* self,
             RenderableManager::Instance instance, size_t primitiveIndex), {
@@ -1038,7 +1134,7 @@ class_<TransformManager>("TransformManager")
 
     .function("getWorldTransform", EMBIND_LAMBDA(flatmat4,
             (TransformManager* self, TransformManager::Instance instance), {
-        return flatmat4 { self->getTransform(instance) } ; }), allow_raw_pointers())
+        return flatmat4 { self->getWorldTransform(instance) } ; }), allow_raw_pointers())
 
     .function("openLocalTransformTransaction", &TransformManager::openLocalTransformTransaction)
     .function("commitLocalTransformTransaction",
@@ -1079,7 +1175,10 @@ class_<LightBuilder>("LightManager$Builder")
     .BUILDER_FUNCTION("sunHaloSize", LightBuilder,
             (LightBuilder* builder, float value), { return &builder->sunHaloSize(value); })
     .BUILDER_FUNCTION("sunHaloFalloff", LightBuilder,
-            (LightBuilder* builder, float value), { return &builder->sunHaloFalloff(value); });
+            (LightBuilder* builder, float value), { return &builder->sunHaloFalloff(value); })
+    .BUILDER_FUNCTION("lightChannel", LightBuilder,
+            (LightBuilder* builder, unsigned int channel, bool enable), {
+        return &builder->lightChannel(channel, enable); });
 
 class_<LightManager>("LightManager")
     .function("hasComponent", &LightManager::hasComponent)
@@ -1126,12 +1225,33 @@ class_<LightManager>("LightManager")
     .function("getSunHaloFalloff", &LightManager::getSunHaloFalloff)
     .function("setShadowCaster", &LightManager::setShadowCaster)
     .function("isShadowCaster", &LightManager::isShadowCaster)
+    .function("setLightChannel", &LightManager::setLightChannel)
+    .function("getLightChannel", &LightManager::getLightChannel)
     ;
 
 /// LightManager$Instance ::class:: Component instance returned by [LightManager]
 /// Be sure to call the instance's `delete` method when you're done with it.
 class_<LightManager::Instance>("LightManager$Instance");
     /// delete ::method:: Frees an instance obtained via `getInstance`
+
+class_<BufferBuilder>("BufferObject$Builder")
+   .function("_build", EMBIND_LAMBDA(BufferObject*, (BufferBuilder* builder, Engine* engine), {
+       return builder->build(*engine);
+   }), allow_raw_pointers())
+   .BUILDER_FUNCTION("bindingType", BufferBuilder, (BufferBuilder* builder,
+           BufferObject::BindingType bt), {
+       return &builder->bindingType(bt); })
+   .BUILDER_FUNCTION("size", BufferBuilder, (BufferBuilder* builder, int byteCount), {
+       return &builder->size(byteCount); });
+
+/// BufferObject ::core class:: Represents a single GPU buffer.
+class_<BufferObject>("BufferObject")
+   .class_function("Builder", (BufferBuilder (*)()) [] { return BufferBuilder(); })
+   .function("getByteCount", &BufferObject::getByteCount)
+   .function("_setBuffer", EMBIND_LAMBDA(void, (BufferObject* self,
+           Engine* engine, BufferDescriptor bd, uint32_t byteOffset), {
+       self->setBuffer(*engine, std::move(*bd.bd), byteOffset);
+   }), allow_raw_pointers());
 
 class_<VertexBuilder>("VertexBuffer$Builder")
     .function("_build", EMBIND_LAMBDA(VertexBuffer*, (VertexBuilder* builder, Engine* engine), {
@@ -1146,6 +1266,8 @@ class_<VertexBuilder>("VertexBuffer$Builder")
         return &builder->attribute(attr, bufferIndex, attrType, byteOffset, byteStride); })
     .BUILDER_FUNCTION("vertexCount", VertexBuilder, (VertexBuilder* builder, int count), {
         return &builder->vertexCount(count); })
+    .BUILDER_FUNCTION("enableBufferObjects", VertexBuilder, (VertexBuilder* builder, bool enable), {
+        return &builder->enableBufferObjects(enable); })
     .BUILDER_FUNCTION("normalized", VertexBuilder, (VertexBuilder* builder,
             VertexAttribute attrib), {
         return &builder->normalized(attrib); })
@@ -1158,6 +1280,7 @@ class_<VertexBuilder>("VertexBuffer$Builder")
 /// VertexBuffer ::core class:: Bundle of buffers and associated vertex attributes.
 class_<VertexBuffer>("VertexBuffer")
     .class_function("Builder", (VertexBuilder (*)()) [] { return VertexBuilder(); })
+    .function("setBufferObjectAt", &VertexBuffer::setBufferObjectAt, allow_raw_pointers())
     .function("_setBufferAt", EMBIND_LAMBDA(void, (VertexBuffer* self,
             Engine* engine, uint8_t bufferIndex, BufferDescriptor vbd, uint32_t byteOffset), {
         self->setBufferAt(*engine, bufferIndex, std::move(*vbd.bd), byteOffset);
@@ -1213,6 +1336,12 @@ class_<MaterialInstance>("MaterialInstance")
     .function("setFloat4Parameter", EMBIND_LAMBDA(void,
             (MaterialInstance* self, std::string name, filament::math::float4 value), {
         self->setParameter(name.c_str(), value); }), allow_raw_pointers())
+    .function("setMat3Parameter", EMBIND_LAMBDA(void,
+            (MaterialInstance* self, std::string name, filament::math::mat3f value), {
+        self->setParameter(name.c_str(), value); }), allow_raw_pointers())
+    .function("setMat4Parameter", EMBIND_LAMBDA(void,
+            (MaterialInstance* self, std::string name, filament::math::mat4f value), {
+        self->setParameter(name.c_str(), value); }), allow_raw_pointers())
     .function("setTextureParameter", EMBIND_LAMBDA(void,
             (MaterialInstance* self, std::string name, Texture* value, TextureSampler sampler), {
         self->setParameter(name.c_str(), value, sampler); }), allow_raw_pointers())
@@ -1224,14 +1353,66 @@ class_<MaterialInstance>("MaterialInstance")
         self->setParameter(name.c_str(), type, value); }), allow_raw_pointers())
     .function("setPolygonOffset", &MaterialInstance::setPolygonOffset)
     .function("setMaskThreshold", &MaterialInstance::setMaskThreshold)
+    .function("getMaskThreshold", &MaterialInstance::getMaskThreshold)
+    .function("setSpecularAntiAliasingVariance", &MaterialInstance::setSpecularAntiAliasingVariance)
+    .function("getSpecularAntiAliasingVariance", &MaterialInstance::getSpecularAntiAliasingVariance)
+    .function("setSpecularAntiAliasingThreshold", &MaterialInstance::setSpecularAntiAliasingThreshold)
+    .function("getSpecularAntiAliasingThreshold", &MaterialInstance::getSpecularAntiAliasingThreshold)
     .function("setDoubleSided", &MaterialInstance::setDoubleSided)
+    .function("isDoubleSided", &MaterialInstance::isDoubleSided)
+    .function("setTransparencyMode", &MaterialInstance::setTransparencyMode)
+    .function("getTransparencyMode", &MaterialInstance::getTransparencyMode)
     .function("setCullingMode", &MaterialInstance::setCullingMode)
+    .function("getCullingMode", &MaterialInstance::getCullingMode)
     .function("setColorWrite", &MaterialInstance::setColorWrite)
+    .function("isColorWriteEnabled", &MaterialInstance::isColorWriteEnabled)
     .function("setDepthWrite", &MaterialInstance::setDepthWrite)
-    .function("setDepthCulling", &MaterialInstance::setDepthCulling);
+    .function("isDepthWriteEnabled", &MaterialInstance::isDepthWriteEnabled)
+    .function("setStencilWrite", &MaterialInstance::setStencilWrite)
+    .function("setDepthCulling", &MaterialInstance::setDepthCulling)
+    .function("isDepthCullingEnabled", &MaterialInstance::isDepthCullingEnabled)
+    .function("setDepthFunc", &MaterialInstance::setDepthFunc)
+    .function("getDepthFunc", &MaterialInstance::getDepthFunc)
+    .function("setStencilCompareFunction", &MaterialInstance::setStencilCompareFunction)
+    .function("setStencilCompareFunction", EMBIND_LAMBDA(void,
+            (MaterialInstance* self, MaterialInstance::StencilCompareFunc func), {
+                self->setStencilCompareFunction(func, backend::StencilFace::FRONT_AND_BACK);
+            }), allow_raw_pointers())
+    .function("setStencilOpStencilFail", &MaterialInstance::setStencilOpStencilFail)
+    .function("setStencilOpStencilFail", EMBIND_LAMBDA(void,
+            (MaterialInstance* self, MaterialInstance::StencilOperation op), {
+                self->setStencilOpStencilFail(op, backend::StencilFace::FRONT_AND_BACK);
+            }), allow_raw_pointers())
+    .function("setStencilOpDepthFail", &MaterialInstance::setStencilOpDepthFail)
+    .function("setStencilOpDepthFail", EMBIND_LAMBDA(void,
+            (MaterialInstance* self, MaterialInstance::StencilOperation op), {
+                self->setStencilOpDepthFail(op, backend::StencilFace::FRONT_AND_BACK);
+            }), allow_raw_pointers())
+    .function("setStencilOpDepthStencilPass", &MaterialInstance::setStencilOpDepthStencilPass)
+    .function("setStencilOpDepthStencilPass", EMBIND_LAMBDA(void,
+            (MaterialInstance* self, MaterialInstance::StencilOperation op), {
+                self->setStencilOpDepthStencilPass(op, backend::StencilFace::FRONT_AND_BACK);
+            }), allow_raw_pointers())
+    .function("setStencilReferenceValue", &MaterialInstance::setStencilReferenceValue)
+    .function("setStencilReferenceValue", EMBIND_LAMBDA(void,
+            (MaterialInstance* self, uint8_t value), {
+                self->setStencilReferenceValue(value, backend::StencilFace::FRONT_AND_BACK);
+            }), allow_raw_pointers())
+    .function("setStencilReadMask", &MaterialInstance::setStencilReadMask)
+    .function("setStencilReadMask", EMBIND_LAMBDA(void,
+            (MaterialInstance* self, uint8_t readMask), {
+                self->setStencilReadMask(readMask, backend::StencilFace::FRONT_AND_BACK);
+            }), allow_raw_pointers())
+    .function("setStencilWriteMask", &MaterialInstance::setStencilWriteMask)
+    .function("setStencilWriteMask", EMBIND_LAMBDA(void,
+            (MaterialInstance* self, uint8_t writeMask), {
+                self->setStencilWriteMask(writeMask, backend::StencilFace::FRONT_AND_BACK);
+            }), allow_raw_pointers());
 
 class_<TextureSampler>("TextureSampler")
-    .constructor<backend::SamplerMinFilter, backend::SamplerMagFilter, backend::SamplerWrapMode>();
+    .constructor<backend::SamplerMinFilter, backend::SamplerMagFilter, backend::SamplerWrapMode>()
+    .function("setAnisotropy", &TextureSampler::setAnisotropy)
+    .function("setCompareMode", &TextureSampler::setCompareMode);
 
 /// Texture ::core class:: 2D image or cubemap that can be sampled by the GPU, possibly mipmapped.
 class_<Texture>("Texture")
@@ -1246,6 +1427,22 @@ class_<Texture>("Texture")
         uint32_t faceSize = pbd.pbd->size / 6;
         Texture::FaceOffsets offsets(faceSize);
         self->setImage(*engine, level, std::move(*pbd.pbd), offsets);
+    }), allow_raw_pointers())
+    .function("_getWidth", EMBIND_LAMBDA(size_t, (Texture* self,
+            Engine* engine, uint8_t level), {
+        return self->getWidth(level);
+    }), allow_raw_pointers())
+    .function("_getHeight", EMBIND_LAMBDA(size_t, (Texture* self,
+            Engine* engine, uint8_t level), {
+        return self->getHeight(level);
+    }), allow_raw_pointers())
+    .function("_getDepth", EMBIND_LAMBDA(size_t, (Texture* self,
+            Engine* engine, uint8_t level), {
+        return self->getDepth(level);
+    }), allow_raw_pointers())
+    .function("_getLevels", EMBIND_LAMBDA(size_t, (Texture* self,
+            Engine* engine), {
+        return self->getLevels();
     }), allow_raw_pointers());
 
 class_<TexBuilder>("Texture$Builder")
@@ -1400,29 +1597,29 @@ class_<PixelBufferDescriptor>("driver$PixelBufferDescriptor")
 // HELPER TYPES
 // ------------
 
-/// KtxBundle ::class:: In-memory representation of a KTX file.
+/// Ktx1Bundle ::class:: In-memory representation of a KTX file.
 /// Most clients should use one of the `create*FromKtx` utility methods in the JavaScript [Engine]
-/// wrapper rather than interacting with `KtxBundle` directly.
-class_<KtxBundle>("KtxBundle")
-    .constructor(EMBIND_LAMBDA(KtxBundle*, (BufferDescriptor kbd), {
-        return new KtxBundle((uint8_t*) kbd.bd->buffer, (uint32_t) kbd.bd->size);
+/// wrapper rather than interacting with `Ktx1Bundle` directly.
+class_<Ktx1Bundle>("Ktx1Bundle")
+    .constructor(EMBIND_LAMBDA(Ktx1Bundle*, (BufferDescriptor kbd), {
+        return new Ktx1Bundle((uint8_t*) kbd.bd->buffer, (uint32_t) kbd.bd->size);
     }))
 
     /// info ::method:: Obtains properties of the KTX header.
     /// ::retval:: The [KtxInfo] property accessor object.
-    .function("getNumMipLevels", &KtxBundle::getNumMipLevels)
+    .function("getNumMipLevels", &Ktx1Bundle::getNumMipLevels)
 
     /// getArrayLength ::method:: Obtains length of the texture array.
     /// ::retval:: The number of elements in the texture array
-    .function("getArrayLength", &KtxBundle::getArrayLength)
+    .function("getArrayLength", &Ktx1Bundle::getArrayLength)
 
     /// getInternalFormat ::method::
     /// srgb ::argument:: boolean that forces the resulting format to SRGB if possible.
     /// ::retval:: [Texture$InternalFormat]
     /// Returns "undefined" if no valid Filament enumerant exists.
     .function("getInternalFormat",
-            EMBIND_LAMBDA(Texture::InternalFormat, (KtxBundle* self, bool srgb), {
-        auto result = ktx::toTextureFormat(self->info());
+            EMBIND_LAMBDA(Texture::InternalFormat, (Ktx1Bundle* self, bool srgb), {
+        auto result = Ktx1Reader::toTextureFormat(self->info());
         if (srgb) {
             if (result == Texture::InternalFormat::RGB8) {
                 result = Texture::InternalFormat::SRGB8;
@@ -1438,42 +1635,42 @@ class_<KtxBundle>("KtxBundle")
     /// ::retval:: [PixelDataFormat]
     /// Returns "undefined" if no valid Filament enumerant exists.
     .function("getPixelDataFormat",
-            EMBIND_LAMBDA(backend::PixelDataFormat, (KtxBundle* self), {
-        return ktx::toPixelDataFormat(self->getInfo());
+            EMBIND_LAMBDA(backend::PixelDataFormat, (Ktx1Bundle* self), {
+        return Ktx1Reader::toPixelDataFormat(self->getInfo());
     }), allow_raw_pointers())
 
     /// getPixelDataType ::method::
     /// ::retval:: [PixelDataType]
     /// Returns "undefined" if no valid Filament enumerant exists.
     .function("getPixelDataType",
-            EMBIND_LAMBDA(backend::PixelDataType, (KtxBundle* self), {
-        return ktx::toPixelDataType(self->getInfo());
+            EMBIND_LAMBDA(backend::PixelDataType, (Ktx1Bundle* self), {
+        return Ktx1Reader::toPixelDataType(self->getInfo());
     }), allow_raw_pointers())
 
     /// getCompressedPixelDataType ::method::
     /// ::retval:: [CompressedPixelDataType]
     /// Returns "undefined" if no valid Filament enumerant exists.
     .function("getCompressedPixelDataType",
-            EMBIND_LAMBDA(backend::CompressedPixelDataType, (KtxBundle* self), {
-        return ktx::toCompressedPixelDataType(self->getInfo());
+            EMBIND_LAMBDA(backend::CompressedPixelDataType, (Ktx1Bundle* self), {
+        return Ktx1Reader::toCompressedPixelDataType(self->getInfo());
     }), allow_raw_pointers())
 
     /// isCompressed ::method::
     /// Per spec, compressed textures in KTX always have their glFormat field set to 0.
     /// ::retval:: boolean
-    .function("isCompressed", EMBIND_LAMBDA(bool, (KtxBundle* self), {
-        return ktx::isCompressed(self->getInfo());
+    .function("isCompressed", EMBIND_LAMBDA(bool, (Ktx1Bundle* self), {
+        return Ktx1Reader::isCompressed(self->getInfo());
     }), allow_raw_pointers())
 
-    .function("isCubemap", &KtxBundle::isCubemap)
-    .function("_getBlob", EMBIND_LAMBDA(BufferDescriptor, (KtxBundle* self, KtxBlobIndex index), {
+    .function("isCubemap", &Ktx1Bundle::isCubemap)
+    .function("_getBlob", EMBIND_LAMBDA(BufferDescriptor, (Ktx1Bundle* self, KtxBlobIndex index), {
         uint8_t* data;
         uint32_t size;
         self->getBlob(index, &data, &size);
         return BufferDescriptor(data, size);
     }), allow_raw_pointers())
     .function("_getCubeBlob", EMBIND_LAMBDA(BufferDescriptor,
-            (KtxBundle* self, uint32_t miplevel), {
+            (Ktx1Bundle* self, uint32_t miplevel), {
         uint8_t* data;
         uint32_t size;
         self->getBlob({miplevel}, &data, &size);
@@ -1482,22 +1679,31 @@ class_<KtxBundle>("KtxBundle")
 
     /// info ::method:: Obtains properties of the KTX header.
     /// ::retval:: The [KtxInfo] property accessor object.
-    .function("info", &KtxBundle::info)
+    .function("info", &Ktx1Bundle::info)
 
     /// getMetadata ::method:: Obtains arbitrary metadata from the KTX file.
     /// key ::argument:: string
     /// ::retval:: string
-    .function("getMetadata", EMBIND_LAMBDA(std::string, (KtxBundle* self, std::string key), {
+    .function("getMetadata", EMBIND_LAMBDA(std::string, (Ktx1Bundle* self, std::string key), {
         return std::string(self->getMetadata(key.c_str()));
     }), allow_raw_pointers());
 
-function("ktx$createTexture", EMBIND_LAMBDA(Texture*,
-        (Engine* engine, const KtxBundle& ktx, bool srgb), {
-    return ktx::createTexture(engine, ktx, srgb, nullptr, nullptr);
+function("ktx1reader$createTexture", EMBIND_LAMBDA(Texture*,
+        (Engine* engine, const Ktx1Bundle& ktx, bool srgb), {
+    return Ktx1Reader::createTexture(engine, ktx, srgb, nullptr, nullptr);
 }), allow_raw_pointers());
 
-/// KtxInfo ::class:: Property accessor for KTX header.
-/// For example, `ktxbundle.info().pixelWidth`. See the
+class_<Ktx2Reader>("Ktx2Reader")
+    .constructor<Engine&, bool>()
+    .function("requestFormat", &Ktx2Reader::requestFormat)
+    .function("unrequestFormat", &Ktx2Reader::unrequestFormat)
+    .function("load", EMBIND_LAMBDA(Texture*, (Ktx2Reader* self, BufferDescriptor bd,
+            Ktx2Reader::TransferFunction transfer), {
+        return self->load((uint8_t*) bd.bd->buffer, (uint32_t) bd.bd->size, transfer);
+    }), allow_raw_pointers());
+
+/// KtxInfo ::class:: Property accessor for KTX1 header.
+/// For example, `Ktx1Bundle.info().pixelWidth`. See the
 /// [KTX spec](https://www.khronos.org/opengles/sdk/tools/KTX/file_format_spec/) for the list of
 /// properties.
 class_<KtxInfo>("KtxInfo")
@@ -1655,6 +1861,8 @@ class_<SurfaceOrientation>("SurfaceOrientation")
 class_<Animator>("gltfio$Animator")
     .function("applyAnimation", &Animator::applyAnimation)
     .function("updateBoneMatrices", &Animator::updateBoneMatrices)
+    .function("applyCrossFade", &Animator::applyCrossFade)
+    .function("resetBoneMatrices", &Animator::resetBoneMatrices)
     .function("getAnimationCount", &Animator::getAnimationCount)
     .function("getAnimationDuration", &Animator::getAnimationDuration)
     .function("getAnimationName", EMBIND_LAMBDA(std::string, (Animator* self, size_t index), {
@@ -1688,6 +1896,11 @@ class_<FilamentAsset>("gltfio$FilamentAsset")
         return EntityVector(ptr, ptr + self->getLightEntityCount());
     }), allow_raw_pointers())
 
+    .function("_getRenderableEntities", EMBIND_LAMBDA(EntityVector, (FilamentAsset* self), {
+        const utils::Entity* ptr = self->getRenderableEntities();
+        return EntityVector(ptr, ptr + self->getRenderableEntityCount());
+    }), allow_raw_pointers())
+
     .function("_getCameraEntities", EMBIND_LAMBDA(EntityVector, (FilamentAsset* self), {
         const utils::Entity* ptr = self->getCameraEntities();
         return EntityVector(ptr, ptr + self->getCameraEntityCount());
@@ -1697,11 +1910,7 @@ class_<FilamentAsset>("gltfio$FilamentAsset")
 
     .function("popRenderable", &FilamentAsset::popRenderable)
 
-    .function("getMaterialInstances", EMBIND_LAMBDA(std::vector<const MaterialInstance*>,
-            (FilamentAsset* self), {
-        const filament::MaterialInstance* const* ptr = self->getMaterialInstances();
-        return std::vector<const MaterialInstance*>(ptr, ptr + self->getMaterialInstanceCount());
-    }), allow_raw_pointers())
+    .function("getInstance", &FilamentAsset::getInstance, allow_raw_pointers())
 
     .function("_getAssetInstances", EMBIND_LAMBDA(std::vector<FilamentInstance*>,
             (FilamentAsset* self), {
@@ -1709,7 +1918,7 @@ class_<FilamentAsset>("gltfio$FilamentAsset")
         return std::vector<FilamentInstance*>(ptr, ptr + self->getAssetInstanceCount());
     }), allow_raw_pointers())
 
-    .function("getResourceUris", EMBIND_LAMBDA(std::vector<std::string>, (FilamentAsset* self), {
+    .function("_getResourceUris", EMBIND_LAMBDA(std::vector<std::string>, (FilamentAsset* self), {
         std::vector<std::string> retval;
         auto uris = self->getResourceUris();
         for (size_t i = 0, len = self->getResourceUriCount(); i < len; ++i) {
@@ -1722,53 +1931,90 @@ class_<FilamentAsset>("gltfio$FilamentAsset")
     .function("getName", EMBIND_LAMBDA(std::string, (FilamentAsset* self, utils::Entity entity), {
         return std::string(self->getName(entity));
     }), allow_raw_pointers())
-    .function("getAnimator", &FilamentAsset::getAnimator, allow_raw_pointers())
+    .function("getExtras", EMBIND_LAMBDA(std::string, (FilamentAsset* self, utils::Entity entity), {
+        return std::string(self->getExtras(entity));
+    }), allow_raw_pointers())
     .function("getWireframe", &FilamentAsset::getWireframe)
     .function("getEngine", &FilamentAsset::getEngine, allow_raw_pointers())
     .function("releaseSourceData", &FilamentAsset::releaseSourceData);
 
 class_<FilamentInstance>("gltfio$FilamentInstance")
+    .function("getAsset", &FilamentInstance::getAsset, allow_raw_pointers())
     .function("getEntities", EMBIND_LAMBDA(EntityVector, (FilamentInstance* self), {
         const utils::Entity* ptr = self->getEntities();
         return EntityVector(ptr, ptr + self->getEntityCount());
     }), allow_raw_pointers())
-
     .function("getRoot", &FilamentInstance::getRoot)
-    .function("getAnimator", &FilamentInstance::getAnimator, allow_raw_pointers());
 
-// This little wrapper exists to get around RTTI requirements in embind.
-struct UbershaderLoader {
+    .function("getAnimator", &FilamentInstance::getAnimator, allow_raw_pointers())
+
+    .function("getSkinNames", EMBIND_LAMBDA(std::vector<std::string>, (FilamentInstance* self), {
+        std::vector<std::string> names(self->getSkinCount());
+        for (size_t i = 0; i < names.size(); ++i) {
+            names[i] = self->getSkinNameAt(i);
+        }
+        return names;
+    }), allow_raw_pointers())
+
+    .function("attachSkin", &FilamentInstance::attachSkin)
+    .function("detachSkin", &FilamentInstance::detachSkin)
+
+    .function("applyMaterialVariant", &FilamentInstance::applyMaterialVariant)
+
+    .function("getMaterialInstances", EMBIND_LAMBDA(std::vector<MaterialInstance*>,
+            (FilamentInstance* self), {
+        MaterialInstance* const* ptr = self->getMaterialInstances();
+        return std::vector<MaterialInstance*>(ptr, ptr + self->getMaterialInstanceCount());
+    }), allow_raw_pointers())
+
+    .function("_getMaterialVariantNames", EMBIND_LAMBDA(std::vector<std::string>, (FilamentInstance* self), {
+        std::vector<std::string> retval(self->getMaterialVariantCount());
+        for (size_t i = 0, len = retval.size(); i < len; ++i) {
+            retval[i] = self->getMaterialVariantName(i);
+        }
+        return retval;
+    }), allow_raw_pointers());
+
+// These little wrappers exist to get around RTTI requirements in embind.
+
+struct UbershaderProvider {
     MaterialProvider* provider;
     void destroyMaterials() { provider->destroyMaterials(); }
 };
 
-class_<UbershaderLoader>("gltfio$UbershaderLoader")
-    .constructor(EMBIND_LAMBDA(UbershaderLoader, (Engine* engine), {
-        return UbershaderLoader { createUbershaderLoader(engine) };
+struct StbProvider { TextureProvider* provider; };
+struct Ktx2Provider { TextureProvider* provider; };
+
+class_<UbershaderProvider>("gltfio$UbershaderProvider")
+    .constructor(EMBIND_LAMBDA(UbershaderProvider, (Engine* engine), {
+        return UbershaderProvider { createUbershaderProvider(engine,
+                UBERARCHIVE_DEFAULT_DATA, UBERARCHIVE_DEFAULT_SIZE) };
     }))
-    .function("destroyMaterials", &UbershaderLoader::destroyMaterials);
+    .function("destroyMaterials", &UbershaderProvider::destroyMaterials);
+
+class_<StbProvider>("gltfio$StbProvider")
+    .constructor(EMBIND_LAMBDA(StbProvider, (Engine* engine), {
+        return StbProvider { createStbProvider(engine) };
+    }));
+
+class_<Ktx2Provider>("gltfio$Ktx2Provider")
+    .constructor(EMBIND_LAMBDA(Ktx2Provider, (Engine* engine), {
+        return Ktx2Provider { createKtx2Provider(engine) };
+    }));
 
 class_<AssetLoader>("gltfio$AssetLoader")
 
-    .constructor(EMBIND_LAMBDA(AssetLoader*, (Engine* engine, UbershaderLoader materials), {
+    .constructor(EMBIND_LAMBDA(AssetLoader*, (Engine* engine, UbershaderProvider materials), {
         auto names = new utils::NameComponentManager(utils::EntityManager::get());
         return AssetLoader::create({ engine, materials.provider, names });
     }), allow_raw_pointers())
 
-    /// createAssetFromJson ::method::
+    /// createAsset ::method::
     /// buffer ::argument:: asset string, or Uint8Array, or [Buffer]
     /// ::retval:: an instance of [FilamentAsset]
-    .function("_createAssetFromJson", EMBIND_LAMBDA(FilamentAsset*,
+    .function("_createAsset", EMBIND_LAMBDA(FilamentAsset*,
             (AssetLoader* self, BufferDescriptor buffer), {
-        return self->createAssetFromJson((const uint8_t*) buffer.bd->buffer, buffer.bd->size);
-    }), allow_raw_pointers())
-
-    /// createAssetFromBinary ::method::
-    /// buffer ::argument:: asset string, or Uint8Array, or [Buffer]
-    /// ::retval:: an instance of [FilamentAsset]
-    .function("_createAssetFromBinary", EMBIND_LAMBDA(FilamentAsset*,
-            (AssetLoader* self, BufferDescriptor buffer), {
-        return self->createAssetFromBinary((const uint8_t*) buffer.bd->buffer, buffer.bd->size);
+        return self->createAsset((const uint8_t*) buffer.bd->buffer, buffer.bd->size);
     }), allow_raw_pointers())
 
     /// createInstancedAsset ::method::
@@ -1782,6 +2028,10 @@ class_<AssetLoader>("gltfio$AssetLoader")
                 buffer.bd->size, instances.data(), numInstances);
     }), allow_raw_pointers())
 
+    // createInstance ::method::
+    // Adds a new instance to an instanced asset.
+    .function("createInstance", &AssetLoader::createInstance, allow_raw_pointers())
+
     // destroyAsset ::method::
     // Destroys the given asset and all of its associated Filament objects. This includes
     // components, material instances, vertex buffers, index buffers, and textures.
@@ -1789,19 +2039,27 @@ class_<AssetLoader>("gltfio$AssetLoader")
     .function("destroyAsset", &AssetLoader::destroyAsset, allow_raw_pointers());
 
 class_<ResourceLoader>("gltfio$ResourceLoader")
-    .constructor(EMBIND_LAMBDA(ResourceLoader*, (Engine* engine, bool normalizeSkinningWeights,
-            bool recomputeBoundingBoxes), {
+    .constructor(EMBIND_LAMBDA(ResourceLoader*, (Engine* engine, bool normalizeSkinningWeights), {
         return new ResourceLoader({
             .engine = engine,
             .gltfPath = nullptr,
-            .normalizeSkinningWeights = normalizeSkinningWeights,
-            .recomputeBoundingBoxes = recomputeBoundingBoxes
+            .normalizeSkinningWeights = normalizeSkinningWeights
         });
     }), allow_raw_pointers())
 
     .function("addResourceData", EMBIND_LAMBDA(void, (ResourceLoader* self, std::string url,
             BufferDescriptor buffer), {
         self->addResourceData(url.c_str(), std::move(*buffer.bd));
+    }), allow_raw_pointers())
+
+    .function("addStbProvider", EMBIND_LAMBDA(void, (ResourceLoader* self, std::string mime,
+            StbProvider provider), {
+        self->addTextureProvider(mime.c_str(), provider.provider);
+    }), allow_raw_pointers())
+
+    .function("addKtx2Provider", EMBIND_LAMBDA(void, (ResourceLoader* self, std::string mime,
+            Ktx2Provider provider), {
+        self->addTextureProvider(mime.c_str(), provider.provider);
     }), allow_raw_pointers())
 
     .function("hasResourceData", EMBIND_LAMBDA(bool, (ResourceLoader* self, std::string url), {
@@ -1818,6 +2076,29 @@ class_<ResourceLoader>("gltfio$ResourceLoader")
 
     .function("asyncGetLoadProgress", &ResourceLoader::asyncGetLoadProgress)
     .function("asyncUpdateLoad", &ResourceLoader::asyncUpdateLoad);
+
+class_<Settings>("Settings");
+
+class_<JsonSerializer>("JsonSerializer")
+    .constructor<>()
+    .function("writeJson", &JsonSerializer::writeJson);
+
+class_<ViewerGui>("ViewerGui")
+    .constructor<Engine*, Scene*, View*, int>()
+    .function("renderUserInterface", &ViewerGui::renderUserInterface, allow_raw_pointers())
+    .function("getSettings", &ViewerGui::getSettings)
+    .function("mouseEvent", &ViewerGui::mouseEvent)
+    .function("keyDownEvent", &ViewerGui::keyDownEvent)
+    .function("keyUpEvent", &ViewerGui::keyUpEvent)
+    .function("keyPressEvent", &ViewerGui::keyPressEvent);
+
+function("fitIntoUnitCube", EMBIND_LAMBDA(flatmat4, (Aabb box, float zoffset), {
+    return flatmat4 { fitIntoUnitCube(box, zoffset) };
+}));
+
+function("multiplyMatrices", EMBIND_LAMBDA(flatmat4, (flatmat4 a, flatmat4 b), {
+    return flatmat4 { a.m * b.m };
+}));
 
 } // EMSCRIPTEN_BINDINGS
 

@@ -328,6 +328,40 @@ OpFunctionEnd
   SinglePassRunAndCheck<IfConversion>(text, text, true, true);
 }
 
+TEST_F(IfConversionTest, DontFlatten) {
+  const std::string text = R"(OpCapability Shader
+OpMemoryModel Logical GLSL450
+OpEntryPoint Vertex %1 "func" %2
+%void = OpTypeVoid
+%bool = OpTypeBool
+%true = OpConstantTrue %bool
+%uint = OpTypeInt 32 0
+%uint_0 = OpConstant %uint 0
+%uint_1 = OpConstant %uint 1
+%v2uint = OpTypeVector %uint 2
+%10 = OpConstantComposite %v2uint %uint_0 %uint_1
+%11 = OpConstantComposite %v2uint %uint_1 %uint_0
+%_ptr_Output_v2uint = OpTypePointer Output %v2uint
+%2 = OpVariable %_ptr_Output_v2uint Output
+%13 = OpTypeFunction %void
+%1 = OpFunction %void None %13
+%14 = OpLabel
+OpSelectionMerge %15 DontFlatten
+OpBranchConditional %true %16 %17
+%16 = OpLabel
+OpBranch %15
+%17 = OpLabel
+OpBranch %15
+%15 = OpLabel
+%18 = OpPhi %v2uint %10 %16 %11 %17
+OpStore %2 %18
+OpReturn
+OpFunctionEnd
+)";
+
+  SinglePassRunAndCheck<IfConversion>(text, text, true, true);
+}
+
 TEST_F(IfConversionTest, LoopUntouched) {
   const std::string text = R"(OpCapability Shader
 OpMemoryModel Logical GLSL450
@@ -501,6 +535,86 @@ OpFunctionEnd
 )";
 
   SetAssembleOptions(SPV_TEXT_TO_BINARY_OPTION_PRESERVE_NUMERIC_IDS);
+  SinglePassRunAndCheck<IfConversion>(text, text, true, true);
+}
+
+TEST_F(IfConversionTest, DebugInfoSimpleIfThenElse) {
+  // When it replaces an OpPhi with OpSelect, the new OpSelect must have
+  // the same scope and line information with the OpPhi.
+  const std::string text = R"(
+; CHECK: OpSelectionMerge [[merge:%\w+]]
+; CHECK: [[merge]] = OpLabel
+; CHECK-NOT: OpPhi
+; CHECK: DebugScope
+; CHECK-NEXT: OpLine {{%\w+}} 3 7
+; CHECK-NEXT: [[sel:%\w+]] = OpSelect %uint %true %uint_0 %uint_1
+; CHECK-NEXT: DebugValue {{%\w+}} [[sel]]
+; CHECK: OpStore {{%\w+}} [[sel]]
+OpCapability Shader
+%ext = OpExtInstImport "OpenCL.DebugInfo.100"
+OpMemoryModel Logical GLSL450
+OpEntryPoint Vertex %1 "func" %2
+%name = OpString "test"
+%void = OpTypeVoid
+%bool = OpTypeBool
+%true = OpConstantTrue %bool
+%uint = OpTypeInt 32 0
+%uint_0 = OpConstant %uint 0
+%uint_1 = OpConstant %uint 1
+%uint_32 = OpConstant %uint 32
+%_ptr_Output_uint = OpTypePointer Output %uint
+%2 = OpVariable %_ptr_Output_uint Output
+%11 = OpTypeFunction %void
+%null_expr = OpExtInst %void %ext DebugExpression
+%src = OpExtInst %void %ext DebugSource %name
+%cu = OpExtInst %void %ext DebugCompilationUnit 1 4 %src HLSL
+%dbg_tf = OpExtInst %void %ext DebugTypeBasic %name %uint_32 Float
+%dbg_f = OpExtInst %void %ext DebugLocalVariable %name %dbg_tf %src 0 0 %cu FlagIsLocal
+%1 = OpFunction %void None %11
+%12 = OpLabel
+OpSelectionMerge %14 None
+OpBranchConditional %true %15 %16
+%15 = OpLabel
+OpBranch %14
+%16 = OpLabel
+OpBranch %14
+%14 = OpLabel
+%scope = OpExtInst %void %ext DebugScope %cu
+OpLine %name 3 7
+%18 = OpPhi %uint %uint_0 %15 %uint_1 %16
+%value = OpExtInst %void %ext DebugValue %dbg_f %18 %null_expr
+OpStore %2 %18
+OpReturn
+OpFunctionEnd
+)";
+
+  SinglePassRunAndMatch<IfConversion>(text, true);
+}
+
+TEST_F(IfConversionTest, MultipleEdgesFromSameBlock) {
+  // If a block has two out going edges that go to the same block, then there
+  // can be an OpPhi instruction with fewer entries than the number of incoming
+  // edges.  This must be handled.
+  const std::string text = R"(OpCapability Shader
+%1 = OpExtInstImport "GLSL.std.450"
+OpMemoryModel Logical GLSL450
+OpEntryPoint Fragment %2 "main"
+OpExecutionMode %2 OriginUpperLeft
+%void = OpTypeVoid
+%4 = OpTypeFunction %void
+%bool = OpTypeBool
+%true = OpConstantTrue %bool
+%true_0 = OpConstantTrue %bool
+%2 = OpFunction %void None %4
+%8 = OpLabel
+OpSelectionMerge %9 None
+OpBranchConditional %true_0 %9 %9
+%9 = OpLabel
+%10 = OpPhi %bool %true %8
+OpReturn
+OpFunctionEnd
+)";
+
   SinglePassRunAndCheck<IfConversion>(text, text, true, true);
 }
 

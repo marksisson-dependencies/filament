@@ -17,18 +17,17 @@
 #ifndef TNT_UTILS_ENTITY_H
 #define TNT_UTILS_ENTITY_H
 
-// FIXME: could we get rid of <functional>
-#include <functional>   // for std::hash
+#include <utils/compiler.h>
 
 #include <stdint.h>
 #include <stddef.h>
 
 namespace utils {
 
-class Entity {
+class UTILS_PUBLIC Entity {
 public:
     // this can be used to create an array of to-be-filled entities (see create())
-    Entity() noexcept = default;
+    Entity() noexcept { } // NOLINT(modernize-use-equals-default), Ubuntu compiler bug
 
     // Entities can be copied
     Entity(const Entity& e) noexcept = default;
@@ -66,10 +65,17 @@ public:
         return Entity{ Type(identity) };
     }
 
+    struct Hasher {
+        typedef Entity argument_type;
+        typedef size_t result_type;
+        result_type operator()(argument_type const& e) const {
+            return e.getId();
+        }
+    };
+
 private:
     friend class EntityManager;
     friend class EntityManagerImpl;
-    friend struct std::hash<Entity>;
     using Type = uint32_t;
 
     explicit Entity(Type identity) noexcept : mIdentity(identity) { }
@@ -78,19 +84,5 @@ private:
 };
 
 } // namespace utils
-
-
-namespace std {
-
-template<>
-struct hash<utils::Entity> {
-    typedef utils::Entity argument_type;
-    typedef size_t result_type;
-    result_type operator()(argument_type const& e) const {
-        return e.getId();
-    }
-};
-
-} // namespace std
 
 #endif // TNT_UTILS_ENTITY_H

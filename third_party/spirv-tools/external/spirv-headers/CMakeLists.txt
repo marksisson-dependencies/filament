@@ -29,7 +29,7 @@
 # https://www.khronos.org/registry/spir-v/
 #
 cmake_minimum_required(VERSION 3.0)
-project(SPIRV-Headers VERSION 1.4.1)
+project(SPIRV-Headers VERSION 1.5.5)
 
 # There are two ways to use this project.
 #
@@ -44,16 +44,9 @@ project(SPIRV-Headers VERSION 1.4.1)
 #   2. cmake ..
 #   3. cmake --build . --target install
 
-# legacy
-add_custom_target(install-headers
-    COMMAND cmake -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/include/spirv
-        $ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/include/spirv)
+option(SPIRV_HEADERS_SKIP_EXAMPLES "Skip building examples" ON)
 
-option(SPIRV_HEADERS_SKIP_EXAMPLES "Skip building examples"
-      ${SPIRV_HEADERS_SKIP_EXAMPLES})
-
-option(SPIRV_HEADERS_SKIP_INSTALL "Skip install"
-      ${SPIRV_HEADERS_SKIP_INSTALL})
+option(SPIRV_HEADERS_SKIP_INSTALL "Skip install" ON)
 
 if(NOT ${SPIRV_HEADERS_SKIP_EXAMPLES})
   set(SPIRV_HEADERS_ENABLE_EXAMPLES ON)
@@ -61,6 +54,10 @@ endif()
 
 if(NOT ${SPIRV_HEADERS_SKIP_INSTALL})
   set(SPIRV_HEADERS_ENABLE_INSTALL ON)
+  # legacy
+  add_custom_target(install-headers
+      COMMAND cmake -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/include/spirv
+          $ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/include/spirv)
 endif()
 
 if (SPIRV_HEADERS_ENABLE_EXAMPLES)
@@ -79,7 +76,7 @@ target_include_directories(${PROJECT_NAME} INTERFACE
 if (SPIRV_HEADERS_ENABLE_INSTALL)
     message(STATUS "Installing SPIRV-Header")
 
-    set(config_install_dir "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+    set(config_install_dir "${CMAKE_INSTALL_DATADIR}/cmake/${PROJECT_NAME}")
 
     set(generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
@@ -89,9 +86,14 @@ if (SPIRV_HEADERS_ENABLE_INSTALL)
     set(namespace "${PROJECT_NAME}::")
 
     include(CMakePackageConfigHelpers)
+
+    if (NOT CMAKE_VERSION VERSION_LESS 3.14)
+        set(arch_independent_str ARCH_INDEPENDENT)
+    endif()
     write_basic_package_version_file(
         "${version_config}"
         COMPATIBILITY SameMajorVersion
+        ${arch_independent_str}
     )
 
     configure_package_config_file(
@@ -123,5 +125,11 @@ if (SPIRV_HEADERS_ENABLE_INSTALL)
         EXPORT "${TARGETS_EXPORT_NAME}"
         NAMESPACE "${namespace}"
         DESTINATION "${config_install_dir}"
+    )
+
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/SPIRV-Headers.pc.in ${CMAKE_BINARY_DIR}/SPIRV-Headers.pc @ONLY)
+    install(
+        FILES "${CMAKE_BINARY_DIR}/SPIRV-Headers.pc"
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/pkgconfig
     )
 endif()

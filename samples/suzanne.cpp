@@ -25,23 +25,29 @@
 #include <filament/View.h>
 
 #include <utils/EntityManager.h>
+#include <utils/Log.h>
 
 #include <filameshio/MeshReader.h>
 
-#include <image/KtxBundle.h>
-#include <image/KtxUtility.h>
+#include <ktxreader/Ktx2Reader.h>
 
 #include <filamentapp/Config.h>
 #include <filamentapp/FilamentApp.h>
 #include <filamentapp/IBL.h>
 
+#include <getopt/getopt.h>
+
+#include <utils/Path.h>
+
 #include <stb_image.h>
+
+#include <iostream>
 
 #include "generated/resources/resources.h"
 #include "generated/resources/monkey.h"
 
 using namespace filament;
-using namespace image;
+using namespace ktxreader;
 using namespace filament::math;
 
 struct App {
@@ -56,7 +62,58 @@ struct App {
     Texture* ao;
 };
 
-static const char* IBL_FOLDER = "default_env";
+static const char* IBL_FOLDER = "assets/ibl/lightroom_14b";
+
+static void printUsage(char* name) {
+    std::string exec_name(utils::Path(name).getName());
+    std::string usage(
+            "SHOWCASE renders a Suzanne model with compressed textures.\n"
+            "Usage:\n"
+            "    SHOWCASE [options]\n"
+            "Options:\n"
+            "   --help, -h\n"
+            "       Prints this message\n\n"
+            "   --api, -a\n"
+            "       Specify the backend API: opengl (default), vulkan, or metal\n"
+    );
+    const std::string from("SHOWCASE");
+    for (size_t pos = usage.find(from); pos != std::string::npos; pos = usage.find(from, pos)) {
+        usage.replace(pos, from.length(), exec_name);
+    }
+    std::cout << usage;
+}
+
+static int handleCommandLineArguments(int argc, char* argv[], Config* config) {
+    static constexpr const char* OPTSTR = "ha:";
+    static const struct option OPTIONS[] = {
+            { "help",         no_argument,       nullptr, 'h' },
+            { "api",          required_argument, nullptr, 'a' },
+            { nullptr, 0, nullptr, 0 }
+    };
+    int opt;
+    int option_index = 0;
+    while ((opt = getopt_long(argc, argv, OPTSTR, OPTIONS, &option_index)) >= 0) {
+        std::string arg(optarg ? optarg : "");
+        switch (opt) {
+            default:
+            case 'h':
+                printUsage(argv[0]);
+                exit(0);
+            case 'a':
+                if (arg == "opengl") {
+                    config->backend = Engine::Backend::OPENGL;
+                } else if (arg == "vulkan") {
+                    config->backend = Engine::Backend::VULKAN;
+                } else if (arg == "metal") {
+                    config->backend = Engine::Backend::METAL;
+                } else {
+                    std::cerr << "Unrecognized backend. Must be 'opengl'|'vulkan'|'metal'.\n";
+                }
+                break;
+        }
+    }
+    return optind;
+}
 
 static Texture* loadNormalMap(Engine* engine, const uint8_t* normals, size_t nbytes) {
     int w, h, n;
@@ -80,21 +137,39 @@ int main(int argc, char** argv) {
     config.title = "suzanne";
     config.iblDirectory = FilamentApp::getRootAssetsPath() + IBL_FOLDER;
 
+    handleCommandLineArguments(argc, argv, &config);
+
     App app;
     auto setup = [config, &app](Engine* engine, View* view, Scene* scene) {
         auto& tcm = engine->getTransformManager();
         auto& rcm = engine->getRenderableManager();
         auto& em = utils::EntityManager::get();
 
-        // Create textures. The KTX bundles are freed by KtxUtility.
-        auto albedo = new image::KtxBundle(MONKEY_ALBEDO_S3TC_DATA, MONKEY_ALBEDO_S3TC_SIZE);
-        auto ao = new image::KtxBundle(MONKEY_AO_DATA, MONKEY_AO_SIZE);
-        auto metallic = new image::KtxBundle(MONKEY_METALLIC_DATA, MONKEY_METALLIC_SIZE);
-        auto roughness = new image::KtxBundle(MONKEY_ROUGHNESS_DATA, MONKEY_ROUGHNESS_SIZE);
-        app.albedo = ktx::createTexture(engine, albedo, true);
-        app.ao = ktx::createTexture(engine, ao, false);
-        app.metallic = ktx::createTexture(engine, metallic, false);
-        app.roughness = ktx::createTexture(engine, roughness, false);
+        Ktx2Reader reader(*engine);
+
+        reader.requestFormat(Texture::InternalFormat::DXT3_SRGBA);
+        reader.requestFormat(Texture::InternalFormat::DXT3_RGBA);
+
+        // Uncompressed formats are lower priority, so they get added last.
+        reader.requestFormat(Texture::InternalFormat::SRGB8_A8);
+        reader.requestFormat(Texture::InternalFormat::RGBA8);
+
+        constexpr auto sRGB = Ktx2Reader::TransferFunction::sRGB;
+        constexpr auto LINEAR = Ktx2Reader::TransferFunction::LINEAR;
+
+        app.albedo = reader.load(MONKEY_ALBEDO_DATA, MONKEY_ALBEDO_SIZE, sRGB);
+        app.ao = reader.load(MONKEY_AO_DATA, MONKEY_AO_SIZE, LINEAR);
+        app.metallic = reader.load(MONKEY_METALLIC_DATA, MONKEY_METALLIC_SIZE, LINEAR);
+        app.roughness = reader.load(MONKEY_ROUGHNESS_DATA, MONKEY_ROUGHNESS_SIZE, LINEAR);
+
+#if !defined(NDEBUG)
+        using namespace utils;
+        slog.i << "Resolved format for albedo: " << app.albedo->getFormat() << io::endl;
+        slog.i << "Resolved format for ambient occlusion: " << app.ao->getFormat() << io::endl;
+        slog.i << "Resolved format for metallic: " << app.metallic->getFormat() << io::endl;
+        slog.i << "Resolved format for roughness: " << app.roughness->getFormat() << io::endl;
+#endif
+
         app.normal = loadNormalMap(engine, MONKEY_NORMAL_DATA, MONKEY_NORMAL_SIZE);
         TextureSampler sampler(TextureSampler::MinFilter::LINEAR_MIPMAP_LINEAR,
                 TextureSampler::MagFilter::LINEAR);

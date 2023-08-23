@@ -35,6 +35,7 @@ std::unordered_map<std::string, Property> Enums::mStringToProperty = {
         { "subsurfacePower",     Property::SUBSURFACE_POWER },
         { "subsurfaceColor",     Property::SUBSURFACE_COLOR },
         { "sheenColor",          Property::SHEEN_COLOR },
+        { "sheenRoughness",      Property::SHEEN_ROUGHNESS },
         { "glossiness",          Property::GLOSSINESS },
         { "specularColor",       Property::SPECULAR_COLOR },
         { "emissive",            Property::EMISSIVE },
@@ -82,11 +83,12 @@ std::unordered_map<std::string, UniformType>& Enums::getMap<UniformType>() noexc
 };
 
 std::unordered_map<std::string, SamplerType> Enums::mStringToSamplerType = {
-        { "sampler2d",       SamplerType::SAMPLER_2D },
-        { "sampler2dArray",  SamplerType::SAMPLER_2D_ARRAY },
-        { "sampler3d",       SamplerType::SAMPLER_3D },
-        { "samplerCubemap",  SamplerType::SAMPLER_CUBEMAP },
-        { "samplerExternal", SamplerType::SAMPLER_EXTERNAL },
+        { "sampler2d",           SamplerType::SAMPLER_2D },
+        { "sampler2dArray",      SamplerType::SAMPLER_2D_ARRAY },
+        { "sampler3d",           SamplerType::SAMPLER_3D },
+        { "samplerCubemap",      SamplerType::SAMPLER_CUBEMAP },
+        { "samplerExternal",     SamplerType::SAMPLER_EXTERNAL },
+        { "samplerCubemapArray", SamplerType::SAMPLER_CUBEMAP_ARRAY },
 };
 
 template <>
@@ -103,15 +105,15 @@ std::unordered_map<std::string, SubpassType>& Enums::getMap<SubpassType>() noexc
     return mStringToSubpassType;
 };
 
-std::unordered_map<std::string, SamplerPrecision> Enums::mStringToSamplerPrecision = {
-        { "default", SamplerPrecision::DEFAULT },
-        { "low",     SamplerPrecision::LOW },
-        { "medium",  SamplerPrecision::MEDIUM },
-        { "high",    SamplerPrecision::HIGH },
+std::unordered_map<std::string, ParameterPrecision> Enums::mStringToSamplerPrecision = {
+        { "default", ParameterPrecision::DEFAULT },
+        { "low",     ParameterPrecision::LOW },
+        { "medium",  ParameterPrecision::MEDIUM },
+        { "high",    ParameterPrecision::HIGH },
 };
 
 template <>
-std::unordered_map<std::string, SamplerPrecision>& Enums::getMap<SamplerPrecision>() noexcept {
+std::unordered_map<std::string, ParameterPrecision>& Enums::getMap<ParameterPrecision>() noexcept {
     return mStringToSamplerPrecision;
 };
 
@@ -156,6 +158,17 @@ std::unordered_map<std::string, SamplerFormat> Enums::mStringToSamplerFormat = {
 template <>
 std::unordered_map<std::string, SamplerFormat>& Enums::getMap<SamplerFormat>() noexcept {
     return mStringToSamplerFormat;
+};
+
+std::unordered_map<std::string, ConstantType > Enums::mStringToConstantType = {
+        { "int",   ConstantType::INT },
+        { "float", ConstantType::FLOAT },
+        { "bool",  ConstantType::BOOL },
+};
+
+template <>
+std::unordered_map<std::string, ConstantType>& Enums::getMap<ConstantType>() noexcept {
+    return mStringToConstantType;
 };
 
 } // namespace filamat

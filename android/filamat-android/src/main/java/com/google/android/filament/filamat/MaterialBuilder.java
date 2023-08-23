@@ -17,17 +17,29 @@
 package com.google.android.filament.filamat;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 
 public class MaterialBuilder {
-
     @SuppressWarnings({"FieldCanBeLocal", "UnusedDeclaration"})
     // Keep to finalize native resources
     private final BuilderFinalizer mFinalizer;
     private final long mNativeObject;
 
+    private static Class<?> sEngineClass = null;
+    private static Method sGetNativeJobSystemMethod = null;
+
     static {
         System.loadLibrary("filamat-jni");
+        try {
+            sEngineClass = Class.forName("com.google.android.filament.Engine");
+            sGetNativeJobSystemMethod = sEngineClass.getDeclaredMethod("getNativeJobSystem");
+        } catch (ClassNotFoundException | NoSuchMethodException e) {
+            // It's okay if we don't find it, this is to avoid creating dependencies
+        }
     }
 
     public enum Shading {
@@ -79,7 +91,7 @@ public class MaterialBuilder {
         SHADOW
     }
 
-    public enum SamplerPrecision {
+    public enum ParameterPrecision {
         LOW,
         MEDIUM,
         HIGH,
@@ -121,7 +133,7 @@ public class MaterialBuilder {
         FADE,                   // material is transparent and color is alpha-pre-multiplied,
                                 // affects specular lighting
         MULTIPLY,               // material darkens what's behind it
-        SCREN                   // material brightens what's behind it
+        SCREEN                  // material brightens what's behind it
     }
 
     public enum VertexDomain {
@@ -235,19 +247,36 @@ public class MaterialBuilder {
 
     @NonNull
     public MaterialBuilder uniformParameter(@NonNull UniformType type, String name) {
-        nMaterialBuilderUniformParameter(mNativeObject, type.ordinal(), name);
+        nMaterialBuilderUniformParameter(mNativeObject, type.ordinal(),
+                ParameterPrecision.DEFAULT.ordinal(), name);
+        return this;
+    }
+
+    @NonNull
+    public MaterialBuilder uniformParameter(@NonNull UniformType type,
+            ParameterPrecision precision, String name) {
+        nMaterialBuilderUniformParameter(mNativeObject, type.ordinal(), precision.ordinal(), name);
         return this;
     }
 
     @NonNull
     public MaterialBuilder uniformParameterArray(@NonNull UniformType type, int size, String name) {
-        nMaterialBuilderUniformParameterArray(mNativeObject, type.ordinal(), size, name);
+        nMaterialBuilderUniformParameterArray(mNativeObject, type.ordinal(), size,
+                ParameterPrecision.DEFAULT.ordinal(), name);
+        return this;
+    }
+
+    @NonNull
+    public MaterialBuilder uniformParameterArray(@NonNull UniformType type, int size,
+            ParameterPrecision precision, String name) {
+        nMaterialBuilderUniformParameterArray(mNativeObject, type.ordinal(), size,
+                precision.ordinal(), name);
         return this;
     }
 
     @NonNull
     public MaterialBuilder samplerParameter(@NonNull SamplerType type, SamplerFormat format,
-            SamplerPrecision precision, String name) {
+            ParameterPrecision precision, String name) {
         nMaterialBuilderSamplerParameter(
                 mNativeObject, type.ordinal(), format.ordinal(), precision.ordinal(), name);
         return this;
@@ -332,8 +361,20 @@ public class MaterialBuilder {
     }
 
     @NonNull
+    public MaterialBuilder alphaToCoverage(boolean enable) {
+        nMaterialBuilderAlphaToCoverage(mNativeObject, enable);
+        return this;
+    }
+
+    @NonNull
     public MaterialBuilder shadowMultiplier(boolean shadowMultiplier) {
         nMaterialBuilderShadowMultiplier(mNativeObject, shadowMultiplier);
+        return this;
+    }
+
+    @NonNull
+    public MaterialBuilder transparentShadow(boolean transparentShadow) {
+        nMaterialBuilderTransparentShadow(mNativeObject, transparentShadow);
         return this;
     }
 
@@ -380,6 +421,12 @@ public class MaterialBuilder {
     }
 
     @NonNull
+    public MaterialBuilder customSurfaceShading(boolean customSurfaceShading) {
+        nMaterialBuilderCustomSurfaceShading(mNativeObject, customSurfaceShading);
+        return this;
+    }
+
+    @NonNull
     public MaterialBuilder multiBounceAmbientOcclusion(boolean multiBounceAO) {
         nMaterialBuilderMultiBounceAmbientOcclusion(mNativeObject, multiBounceAO);
         return this;
@@ -418,12 +465,71 @@ public class MaterialBuilder {
     @NonNull
     public MaterialBuilder variantFilter(int variantFilter) {
         nMaterialBuilderVariantFilter(mNativeObject, variantFilter);
+        useLegacyMorphing();
         return this;
     }
 
+    /**
+     * Legacy morphing uses the data in the {@link VertexBuffer.VertexAttribute} slots
+     * (<code>MORPH_POSITION_0</code>, etc) and is limited to 4 morph targets.
+     *
+     * @see RenderableManager.Builder#morphing()
+     */
+    @NonNull
+    public MaterialBuilder useLegacyMorphing() {
+        nMaterialBuilderUseLegacyMorphing(mNativeObject);
+        return this;
+    }
+
+    /**
+     * Validates, builds, and returns the compiled material. While this method never
+     * returns null, the returned {@link MaterialPackage} may be invalid. Call
+     * {@link MaterialPackage#isValid()} before using it.
+     *
+     * Calling this method is equivalent to calling {@link #build(Object)} and passing
+     * <code>null</code> as the job system provider.
+     *
+     * @see #build(Object)
+     */
     @NonNull
     public MaterialPackage build() {
-        long nativePackage = nBuilderBuild(mNativeObject);
+        return build(null);
+    }
+
+    /**
+     * Validates, builds, and returns the compiled material. While this method never
+     * returns null, the returned {@link MaterialPackage} may be invalid. Call
+     * {@link MaterialPackage#isValid()} before using it.
+     *
+     * You can pass a job system provider to this method, or null. When passing null
+     * or an invalid job system provider, a temporary job system will be created which
+     * is less efficient than reusing an existing job system.
+     *
+     * Currently the only valid type of job system provider is an <code>Engine</code>
+     * instance from the main Filament library (<code>com.google.android.filament.Engine</code>).
+     *
+     * If you are using Filament and the filamat library together you <em>must</em> pass an
+     * <code>Engine</code> as the job system provider, <em>or</em> invoke
+     * <code>MaterialBuilder</code> from a thread other than the thread used to invoke Filament
+     * APIs.
+     *
+     * @param jobSystemProvider An <code>Engine</code> instance or null
+     */
+    @NonNull
+    public MaterialPackage build(@Nullable Object jobSystemProvider) {
+        long nativeJobSystem = 0;
+        if (jobSystemProvider != null && sEngineClass != null) {
+            if (sEngineClass.isInstance(jobSystemProvider) && sGetNativeJobSystemMethod != null) {
+                try {
+                    //noinspection ConstantConditions
+                    nativeJobSystem = (Long) sGetNativeJobSystemMethod.invoke(jobSystemProvider);
+                } catch (IllegalAccessException | InvocationTargetException e) {
+                    // Ignore
+                }
+            }
+        }
+
+        long nativePackage = nBuilderBuild(mNativeObject, nativeJobSystem);
         byte[] data = nGetPackageBytes(nativePackage);
         MaterialPackage result =
                 new MaterialPackage(ByteBuffer.wrap(data), nGetPackageIsValid(nativePackage));
@@ -455,7 +561,7 @@ public class MaterialBuilder {
     private static native long nCreateMaterialBuilder();
     private static native void nDestroyMaterialBuilder(long nativeBuilder);
 
-    private static native long nBuilderBuild(long nativeBuilder);
+    private static native long nBuilderBuild(long nativeBuilder, long nativeJobSystem);
     private static native byte[] nGetPackageBytes(long nativePackage);
     private static native boolean nGetPackageIsValid(long nativePackage);
     private static native void nDestroyPackage(long nativePackage);
@@ -465,9 +571,9 @@ public class MaterialBuilder {
     private static native void nMaterialBuilderShading(long nativeBuilder, int shading);
     private static native void nMaterialBuilderInterpolation(long nativeBuilder, int interpolation);
     private static native void nMaterialBuilderUniformParameter(long nativeBuilder, int type,
-            String name);
+            int precision, String name);
     private static native void nMaterialBuilderUniformParameterArray(long nativeBuilder, int type,
-            int size, String name);
+            int size, int precision, String name);
     private static native void nMaterialBuilderSamplerParameter(long nativeBuilder, int type,
             int format, int precision, String name);
     private static native void nMaterialBuilderVariable(long nativeBuilder, int variable,
@@ -484,9 +590,12 @@ public class MaterialBuilder {
     private static native void nMaterialBuilderDepthCulling(long nativeBuilder, boolean enable);
     private static native void nMaterialBuilderDoubleSided(long nativeBuilder, boolean doubleSided);
     private static native void nMaterialBuilderMaskThreshold(long nativeBuilder, float mode);
+    private static native void nMaterialBuilderAlphaToCoverage(long nativeBuilder, boolean enable);
 
     private static native void nMaterialBuilderShadowMultiplier(long mNativeObject,
             boolean shadowMultiplier);
+    private static native void nMaterialBuilderTransparentShadow(long mNativeObject,
+            boolean transparentShadow);
     private static native void nMaterialBuilderSpecularAntiAliasing(long mNativeObject,
             boolean specularAntiAliasing);
     private static native void nMaterialBuilderSpecularAntiAliasingVariance(long mNativeObject,
@@ -498,6 +607,8 @@ public class MaterialBuilder {
     private static native void nMaterialBuilderClearCoatIorChange(long mNativeObject,
             boolean clearCoatIorChange);
     private static native void nMaterialBuilderFlipUV(long nativeBuilder, boolean flipUV);
+    private static native void nMaterialBuilderCustomSurfaceShading(long nativeBuilder,
+            boolean customSurfaceShading);
     private static native void nMaterialBuilderMultiBounceAmbientOcclusion(long nativeBuilder,
             boolean multiBounceAO);
     private static native void nMaterialBuilderSpecularAmbientOcclusion(long nativeBuilder,
@@ -508,4 +619,5 @@ public class MaterialBuilder {
     private static native void nMaterialBuilderOptimization(long nativeBuilder, int optimization);
     private static native void nMaterialBuilderVariantFilter(long nativeBuilder,
             int variantFilter);
+    private static native void nMaterialBuilderUseLegacyMorphing(long nativeBuilder);
 }

@@ -7,10 +7,14 @@ Filament. Latest versions are available on the [project page](https://github.com
 
 - `cmgen`, Image-based lighting asset generator
 - `filamesh`, Mesh converter
+- `glslminifier`, Tool to minify GLSL shaders
+- `gltf_viewer`, glTF 2.0 viewer that lets you explore many features of Filament
 - `matc`, Material compiler
+- `material_sandbox`, simple mesh viewer that lets you explore material and lighting features
 - `matinfo`, Displays information about materials compiled with `matc`
 - `mipgen`, Generates a series of miplevels from a source image.
 - `normal-blending`, Tool to blend normal maps
+- `resgen`, Tool to convert files into binary resources to be embedded at compie time
 - `roughness-prefilter`, Pre-filters a roughness map from a normal map to reduce aliasing
 - `specular-color`, Computes the specular color of conductors based on spectral data
 
@@ -40,10 +44,11 @@ To link against debug builds of Filament, you must also link against:
 
 - `matdbg`, Support library that adds an interactive web-based debugger to Filament
 
-To use the Vulkan backend on macOS you must also make the following libraries available at runtime:
-- `MoltenVK_icd.json`
-- `libMoltenVK.dylib`
-- `libvulkan.1.dylib`
+To use the Vulkan backend on macOS you must install the LunarG SDK, enable "System Global
+Components", and reboot your machine.
+
+The easiest way to install those files is to use the macOS
+[LunarG Vulkan SDK](https://www.lunarg.com/vulkan-sdk/) installer.
 
 ## Linking against Filament
 
@@ -87,7 +92,7 @@ Copy your platform's Makefile below into a `Makefile` inside the same directory.
 ### Linux
 
 ```
-FILAMENT_LIBS=-lfilament -lbackend -lbluegl -lbluevk -lfilabridge -lfilaflat -lutils -lgeometry -lsmol-v -libl
+FILAMENT_LIBS=-lfilament -lbackend -lbluegl -lbluevk -lfilabridge -lfilaflat -lutils -lgeometry -lsmol-v -lvkshaders -libl
 CC=clang++
 
 main: main.o
@@ -105,7 +110,7 @@ clean:
 ### macOS
 
 ```
-FILAMENT_LIBS=-lfilament -lbackend -lbluegl -lbluevk -lfilabridge -lfilaflat -lutils -lgeometry -lsmol-v -libl
+FILAMENT_LIBS=-lfilament -lbackend -lbluegl -lbluevk -lfilabridge -lfilaflat -lutils -lgeometry -lsmol-v -lvkshaders -libl
 FRAMEWORKS=-framework Cocoa -framework Metal -framework CoreVideo
 CC=clang++
 
@@ -134,7 +139,7 @@ used to change the run-time library version.
 
 ```
 FILAMENT_LIBS=filament.lib backend.lib bluegl.lib bluevk.lib filabridge.lib filaflat.lib \
-              utils.lib geometry.lib smol-v.lib ibl.lib
+              utils.lib geometry.lib smol-v.lib ibl.lib vkshaders.lib
 CC=cl.exe
 
 main.exe: main.obj

@@ -70,14 +70,15 @@ class App {
       .direction([-1, 0, 1])
       .intensity(50000.0)
       .build(engine, backlight);
-    const indirectLight = engine.createIblFromKtx(ibl_url);
+    const indirectLight = engine.createIblFromKtx1(ibl_url);
     indirectLight.setIntensity(50000);
     scene.setIndirectLight(indirectLight);
-    const skybox = engine.createSkyFromKtx(sky_url);
+    const skybox = engine.createSkyFromKtx1(sky_url);
     scene.setSkybox(skybox);
     this.swapChain = engine.createSwapChain();
     this.renderer = engine.createRenderer();
-    this.camera = engine.createCamera();
+    this.camera = engine.createCamera(Filament.EntityManager.get()
+      .create());
     this.view = engine.createView();
     this.view.setCamera(this.camera);
     this.view.setScene(scene);

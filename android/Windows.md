@@ -6,10 +6,28 @@ In addition to the requirements for [building Filament on Windows](../BUILDING.m
 need the Android SDK and NDK. See [Getting Started with the
 NDK](https://developer.android.com/ndk/guides/) for detailed installation instructions.
 
+You'll also need [Ninja 1.8](https://github.com/ninja-build/ninja/wiki/Pre-built-Ninja-packages) (or
+more recent) and [Git for Windows](https://git-scm.com/download/win) to clone the repository and run
+Bash scripts.
+
 Ensure the `%ANDROID_HOME%` environment variable is set to your Android SDK installation location.
 
 On Windows, we require VS2019 for building the host tools. All of the following commands should be
 executed in a *Visual Studio x64 Native Tools Command Prompt for VS 2019*.
+
+### A Note About Python 3
+
+Python 3 is required. If CMake errors because it cannot find Python 3:
+
+```
+Could NOT find PythonInterp: Found unsuitable version "1.4", but required is at least "3"
+```
+
+then add the following flag to the CMake invocations:
+
+```
+-DPYTHON_EXECUTABLE:FILEPATH=\path\to\python3
+```
 
 ## Desktop Tools
 
@@ -104,20 +122,20 @@ The Gradle project used to generate the AAR is located at `<filament>\android`.
 
 ```
 cd android
-gradlew -Pfilament_dist_dir=..\out\android-release\filament assembleRelease
+gradlew -Pcom.google.android.filament.dist-dir=..\out\android-release\filament assembleRelease
 copy filament-android\build\outputs\aar\filament-android-release.aar ..\..\out\
 ```
 
-If you're only interested in building for a single ABI, you'll need to pass a `filament_abis` parameter:
+If you're only interested in building for a single ABI, you'll need to pass a `com.google.android.filament.abis` parameter:
 
 ```
-gradlew -Pfilament_dist_dir=..\out\android-release\filament assembleRelease -Pfilament_abis=x86
+gradlew -Pcom.google.android.filament.dist-dir=..\out\android-release\filament assembleRelease -Pcom.google.android.filament.abis=x86
 ```
 
-If you're only interested in building SDK, you may skip samples build by passing a `filament_skip_samples` flag:
+If you're only interested in building SDK, you may skip samples build by passing a `com.google.android.filament.skip-samples` flag:
 
 ```
-gradlew -Pfilament_dist_dir=..\out\android-release\filament assembleRelease -Pfilament_skip_samples
+gradlew -Pcom.google.android.filament.dist-dir=..\out\android-release\filament assembleRelease -Pcom.google.android.filament.skip-samples
 ```
 
 

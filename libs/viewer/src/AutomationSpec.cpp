@@ -20,13 +20,14 @@
 
 #include "jsonParseUtils.h"
 
-#include <assert.h>
+#include <utils/Log.h>
 
 #include <sstream>
 #include <string>
 #include <vector>
 
-#include <utils/Log.h>
+#include <assert.h>
+#include <string.h>
 
 using namespace utils;
 
@@ -34,8 +35,7 @@ using std::vector;
 
 static const bool VERBOSE = false;
 
-namespace filament {
-namespace viewer {
+namespace filament::viewer {
 
 static const char* DEFAULT_AUTOMATION = R"TXT([
     {
@@ -45,17 +45,24 @@ static const char* DEFAULT_AUTOMATION = R"TXT([
         }
     },
     {
+        "name": "vieweropts",
+        "base": {
+            "viewer.cameraFocusDistance": 0.1
+        }
+    },
+    {
         "name": "viewopts",
         "base": {
-            "view.dof.focusDistance": 0.1
         },
         "permute": {
-            "view.sampleCount": [1, 4],
+            "view.msaa.enabled": [false, true],
             "view.taa.enabled": [false, true],
             "view.antiAliasing": ["NONE", "FXAA"],
             "view.ssao.enabled": [false, true],
+            "view.screenSpaceReflections.enabled": [false, true]
             "view.bloom.enabled": [false, true],
-            "view.dof.enabled": [false, true]
+            "view.dof.enabled": [false, true],
+            "view.guardBand.enabled": [false, true]
         }
     }
 ]
@@ -103,7 +110,8 @@ static int parseBaseSettings(jsmntok_t const* tokens, int i, const char* jsonChu
         }
 
         // Now that we have a complete JSON string, apply this property change.
-        readJson(json.c_str(), json.size(), out);
+        JsonSerializer serializer;
+        serializer.readJson(json.c_str(), json.size(), out);
     }
     return i;
 }
@@ -194,6 +202,7 @@ static int parseAutomationSpec(jsmntok_t const* tokens, int i, const char* jsonC
     }
 
     size_t caseIndex = 0;
+    JsonSerializer serializer;
     while (true) {
         if (VERBOSE) {
             slog.i << "  Generating test case " << caseIndex << io::endl;
@@ -227,7 +236,7 @@ static int parseAutomationSpec(jsmntok_t const* tokens, int i, const char* jsonC
             if (VERBOSE) {
                 slog.i << "    Applying " << jsonString.c_str() << io::endl;
             }
-            if (!readJson(jsonString.c_str(), jsonString.size(), &testCase)) {
+            if (!serializer.readJson(jsonString.c_str(), jsonString.size(), &testCase)) {
                 return -1;
             }
         }
@@ -325,5 +334,4 @@ size_t AutomationSpec::size() const { return mImpl->cases.size(); }
 AutomationSpec::AutomationSpec(Impl* impl) : mImpl(impl) {}
 AutomationSpec::~AutomationSpec() { delete mImpl; }
 
-} // namespace viewer
-} // namespace filament
+} // namespace filament::viewer

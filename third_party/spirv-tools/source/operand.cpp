@@ -1,4 +1,6 @@
-// Copyright (c) 2015-2016 The Khronos Group Inc.
+// Copyright (c) 2015-2020 The Khronos Group Inc.
+// Modifications Copyright (C) 2020 Advanced Micro Devices, Inc. All rights
+// reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,6 +24,7 @@
 #include "DebugInfo.h"
 #include "OpenCLDebugInfo100.h"
 #include "source/macro.h"
+#include "source/opcode.h"
 #include "source/spirv_constant.h"
 #include "source/spirv_target_env.h"
 
@@ -69,12 +72,16 @@ spv_result_t spvOperandTableNameLookup(spv_target_env env,
       // Note that the second rule assumes the extension enabling this operand
       // is indeed requested in the SPIR-V code; checking that should be
       // validator's work.
-      if (((version >= entry.minVersion && version <= entry.lastVersion) ||
-           entry.numExtensions > 0u || entry.numCapabilities > 0u) &&
-          nameLength == strlen(entry.name) &&
+      if (nameLength == strlen(entry.name) &&
           !strncmp(entry.name, name, nameLength)) {
-        *pEntry = &entry;
-        return SPV_SUCCESS;
+        if ((version >= entry.minVersion && version <= entry.lastVersion) ||
+            entry.numExtensions > 0u || entry.numCapabilities > 0u) {
+          *pEntry = &entry;
+          return SPV_SUCCESS;
+        } else {
+          // if there is no extension/capability then the version is wrong
+          return SPV_ERROR_WRONG_VERSION;
+        }
       }
     }
   }
@@ -206,6 +213,8 @@ const char* spvOperandTypeStr(spv_operand_type_t type) {
     case SPV_OPERAND_TYPE_MEMORY_ACCESS:
     case SPV_OPERAND_TYPE_OPTIONAL_MEMORY_ACCESS:
       return "memory access";
+    case SPV_OPERAND_TYPE_FRAGMENT_SHADING_RATE:
+      return "shading rate";
     case SPV_OPERAND_TYPE_SCOPE_ID:
       return "scope ID";
     case SPV_OPERAND_TYPE_GROUP_OPERATION:
@@ -216,6 +225,17 @@ const char* spvOperandTypeStr(spv_operand_type_t type) {
       return "kernel profiling info";
     case SPV_OPERAND_TYPE_CAPABILITY:
       return "capability";
+    case SPV_OPERAND_TYPE_RAY_FLAGS:
+      return "ray flags";
+    case SPV_OPERAND_TYPE_RAY_QUERY_INTERSECTION:
+      return "ray query intersection";
+    case SPV_OPERAND_TYPE_RAY_QUERY_COMMITTED_INTERSECTION_TYPE:
+      return "ray query committed intersection type";
+    case SPV_OPERAND_TYPE_RAY_QUERY_CANDIDATE_INTERSECTION_TYPE:
+      return "ray query candidate intersection type";
+    case SPV_OPERAND_TYPE_PACKED_VECTOR_FORMAT:
+    case SPV_OPERAND_TYPE_OPTIONAL_PACKED_VECTOR_FORMAT:
+      return "packed vector format";
     case SPV_OPERAND_TYPE_IMAGE:
     case SPV_OPERAND_TYPE_OPTIONAL_IMAGE:
       return "image";
@@ -252,10 +272,18 @@ const char* spvOperandTypeStr(spv_operand_type_t type) {
     case SPV_OPERAND_TYPE_IMAGE_CHANNEL_DATA_TYPE:
       return "image channel data type";
 
+    case SPV_OPERAND_TYPE_FPDENORM_MODE:
+      return "FP denorm mode";
+    case SPV_OPERAND_TYPE_FPOPERATION_MODE:
+      return "FP operation mode";
+    case SPV_OPERAND_TYPE_QUANTIZATION_MODES:
+      return "quantization mode";
+    case SPV_OPERAND_TYPE_OVERFLOW_MODES:
+      return "overflow mode";
+
     case SPV_OPERAND_TYPE_NONE:
       return "NONE";
     default:
-      assert(0 && "Unhandled operand type!");
       break;
   }
   return "unknown";
@@ -323,6 +351,10 @@ bool spvOperandIsConcrete(spv_operand_type_t type) {
     case SPV_OPERAND_TYPE_KERNEL_ENQ_FLAGS:
     case SPV_OPERAND_TYPE_KERNEL_PROFILING_INFO:
     case SPV_OPERAND_TYPE_CAPABILITY:
+    case SPV_OPERAND_TYPE_RAY_FLAGS:
+    case SPV_OPERAND_TYPE_RAY_QUERY_INTERSECTION:
+    case SPV_OPERAND_TYPE_RAY_QUERY_COMMITTED_INTERSECTION_TYPE:
+    case SPV_OPERAND_TYPE_RAY_QUERY_CANDIDATE_INTERSECTION_TYPE:
     case SPV_OPERAND_TYPE_DEBUG_BASE_TYPE_ATTRIBUTE_ENCODING:
     case SPV_OPERAND_TYPE_DEBUG_COMPOSITE_TYPE:
     case SPV_OPERAND_TYPE_DEBUG_TYPE_QUALIFIER:
@@ -332,6 +364,11 @@ bool spvOperandIsConcrete(spv_operand_type_t type) {
     case SPV_OPERAND_TYPE_CLDEBUG100_DEBUG_TYPE_QUALIFIER:
     case SPV_OPERAND_TYPE_CLDEBUG100_DEBUG_OPERATION:
     case SPV_OPERAND_TYPE_CLDEBUG100_DEBUG_IMPORTED_ENTITY:
+    case SPV_OPERAND_TYPE_FPDENORM_MODE:
+    case SPV_OPERAND_TYPE_FPOPERATION_MODE:
+    case SPV_OPERAND_TYPE_QUANTIZATION_MODES:
+    case SPV_OPERAND_TYPE_OVERFLOW_MODES:
+    case SPV_OPERAND_TYPE_PACKED_VECTOR_FORMAT:
       return true;
     default:
       break;
@@ -347,6 +384,7 @@ bool spvOperandIsConcreteMask(spv_operand_type_t type) {
     case SPV_OPERAND_TYPE_LOOP_CONTROL:
     case SPV_OPERAND_TYPE_FUNCTION_CONTROL:
     case SPV_OPERAND_TYPE_MEMORY_ACCESS:
+    case SPV_OPERAND_TYPE_FRAGMENT_SHADING_RATE:
     case SPV_OPERAND_TYPE_DEBUG_INFO_FLAGS:
     case SPV_OPERAND_TYPE_CLDEBUG100_DEBUG_INFO_FLAGS:
       return true;
@@ -357,13 +395,36 @@ bool spvOperandIsConcreteMask(spv_operand_type_t type) {
 }
 
 bool spvOperandIsOptional(spv_operand_type_t type) {
-  return SPV_OPERAND_TYPE_FIRST_OPTIONAL_TYPE <= type &&
-         type <= SPV_OPERAND_TYPE_LAST_OPTIONAL_TYPE;
+  switch (type) {
+    case SPV_OPERAND_TYPE_OPTIONAL_ID:
+    case SPV_OPERAND_TYPE_OPTIONAL_IMAGE:
+    case SPV_OPERAND_TYPE_OPTIONAL_MEMORY_ACCESS:
+    case SPV_OPERAND_TYPE_OPTIONAL_LITERAL_INTEGER:
+    case SPV_OPERAND_TYPE_OPTIONAL_LITERAL_NUMBER:
+    case SPV_OPERAND_TYPE_OPTIONAL_TYPED_LITERAL_INTEGER:
+    case SPV_OPERAND_TYPE_OPTIONAL_LITERAL_STRING:
+    case SPV_OPERAND_TYPE_OPTIONAL_ACCESS_QUALIFIER:
+    case SPV_OPERAND_TYPE_OPTIONAL_PACKED_VECTOR_FORMAT:
+    case SPV_OPERAND_TYPE_OPTIONAL_CIV:
+      return true;
+    default:
+      break;
+  }
+  // Any variable operand is also optional.
+  return spvOperandIsVariable(type);
 }
 
 bool spvOperandIsVariable(spv_operand_type_t type) {
-  return SPV_OPERAND_TYPE_FIRST_VARIABLE_TYPE <= type &&
-         type <= SPV_OPERAND_TYPE_LAST_VARIABLE_TYPE;
+  switch (type) {
+    case SPV_OPERAND_TYPE_VARIABLE_ID:
+    case SPV_OPERAND_TYPE_VARIABLE_LITERAL_INTEGER:
+    case SPV_OPERAND_TYPE_VARIABLE_LITERAL_INTEGER_ID:
+    case SPV_OPERAND_TYPE_VARIABLE_ID_LITERAL_INTEGER:
+      return true;
+    default:
+      break;
+  }
+  return false;
 }
 
 bool spvExpandOperandSequenceOnce(spv_operand_type_t type,
@@ -441,7 +502,7 @@ bool spvIsInIdType(spv_operand_type_t type) {
     return false;
   }
   switch (type) {
-    // Blacklist non-input IDs.
+    // Deny non-input IDs.
     case SPV_OPERAND_TYPE_TYPE_ID:
     case SPV_OPERAND_TYPE_RESULT_ID:
       return false;
@@ -451,61 +512,65 @@ bool spvIsInIdType(spv_operand_type_t type) {
 }
 
 std::function<bool(unsigned)> spvOperandCanBeForwardDeclaredFunction(
-    SpvOp opcode) {
+    spv::Op opcode) {
   std::function<bool(unsigned index)> out;
+  if (spvOpcodeGeneratesType(opcode)) {
+    // All types can use forward pointers.
+    out = [](unsigned) { return true; };
+    return out;
+  }
   switch (opcode) {
-    case SpvOpExecutionMode:
-    case SpvOpExecutionModeId:
-    case SpvOpEntryPoint:
-    case SpvOpName:
-    case SpvOpMemberName:
-    case SpvOpSelectionMerge:
-    case SpvOpDecorate:
-    case SpvOpMemberDecorate:
-    case SpvOpDecorateId:
-    case SpvOpDecorateStringGOOGLE:
-    case SpvOpMemberDecorateStringGOOGLE:
-    case SpvOpTypeStruct:
-    case SpvOpBranch:
-    case SpvOpLoopMerge:
+    case spv::Op::OpExecutionMode:
+    case spv::Op::OpExecutionModeId:
+    case spv::Op::OpEntryPoint:
+    case spv::Op::OpName:
+    case spv::Op::OpMemberName:
+    case spv::Op::OpSelectionMerge:
+    case spv::Op::OpDecorate:
+    case spv::Op::OpMemberDecorate:
+    case spv::Op::OpDecorateId:
+    case spv::Op::OpDecorateStringGOOGLE:
+    case spv::Op::OpMemberDecorateStringGOOGLE:
+    case spv::Op::OpBranch:
+    case spv::Op::OpLoopMerge:
       out = [](unsigned) { return true; };
       break;
-    case SpvOpGroupDecorate:
-    case SpvOpGroupMemberDecorate:
-    case SpvOpBranchConditional:
-    case SpvOpSwitch:
+    case spv::Op::OpGroupDecorate:
+    case spv::Op::OpGroupMemberDecorate:
+    case spv::Op::OpBranchConditional:
+    case spv::Op::OpSwitch:
       out = [](unsigned index) { return index != 0; };
       break;
 
-    case SpvOpFunctionCall:
+    case spv::Op::OpFunctionCall:
       // The Function parameter.
       out = [](unsigned index) { return index == 2; };
       break;
 
-    case SpvOpPhi:
+    case spv::Op::OpPhi:
       out = [](unsigned index) { return index > 1; };
       break;
 
-    case SpvOpEnqueueKernel:
+    case spv::Op::OpEnqueueKernel:
       // The Invoke parameter.
       out = [](unsigned index) { return index == 8; };
       break;
 
-    case SpvOpGetKernelNDrangeSubGroupCount:
-    case SpvOpGetKernelNDrangeMaxSubGroupSize:
+    case spv::Op::OpGetKernelNDrangeSubGroupCount:
+    case spv::Op::OpGetKernelNDrangeMaxSubGroupSize:
       // The Invoke parameter.
       out = [](unsigned index) { return index == 3; };
       break;
 
-    case SpvOpGetKernelWorkGroupSize:
-    case SpvOpGetKernelPreferredWorkGroupSizeMultiple:
+    case spv::Op::OpGetKernelWorkGroupSize:
+    case spv::Op::OpGetKernelPreferredWorkGroupSizeMultiple:
       // The Invoke parameter.
       out = [](unsigned index) { return index == 2; };
       break;
-    case SpvOpTypeForwardPointer:
+    case spv::Op::OpTypeForwardPointer:
       out = [](unsigned index) { return index == 0; };
       break;
-    case SpvOpTypeArray:
+    case spv::Op::OpTypeArray:
       out = [](unsigned index) { return index == 1; };
       break;
     default:
@@ -517,6 +582,12 @@ std::function<bool(unsigned)> spvOperandCanBeForwardDeclaredFunction(
 
 std::function<bool(unsigned)> spvDbgInfoExtOperandCanBeForwardDeclaredFunction(
     spv_ext_inst_type_t ext_type, uint32_t key) {
+  // The Vulkan debug info extended instruction set is non-semantic so allows no
+  // forward references ever
+  if (ext_type == SPV_EXT_INST_TYPE_NONSEMANTIC_SHADER_DEBUGINFO_100) {
+    return [](unsigned) { return false; };
+  }
+
   // TODO(https://gitlab.khronos.org/spirv/SPIR-V/issues/532): Forward
   // references for debug info instructions are still in discussion. We must
   // update the following lines of code when we conclude the spec.

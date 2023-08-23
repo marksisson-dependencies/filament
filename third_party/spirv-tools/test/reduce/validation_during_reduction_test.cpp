@@ -22,10 +22,10 @@ namespace reduce {
 namespace {
 
 using opt::Function;
-using opt::Instruction;
 using opt::IRContext;
+using opt::Instruction;
 
-// A dumb reduction opportunity finder that finds opportunities to remove global
+// A reduction opportunity finder that finds opportunities to remove global
 // values regardless of whether they are referenced. This is very likely to make
 // the resulting module invalid.  We use this to test the reducer's behavior in
 // the scenario where a bad reduction pass leads to an invalid module.
@@ -43,7 +43,7 @@ class BlindlyRemoveGlobalValuesReductionOpportunityFinder
   // referenced (directly or indirectly) from elsewhere in the module, each such
   // opportunity will make the module invalid.
   std::vector<std::unique_ptr<ReductionOpportunity>> GetAvailableOpportunities(
-      IRContext* context) const final {
+      IRContext* context, uint32_t /*unused*/) const final {
     std::vector<std::unique_ptr<ReductionOpportunity>> result;
     for (auto& inst : context->module()->types_values()) {
       if (inst.HasResultId()) {
@@ -55,7 +55,7 @@ class BlindlyRemoveGlobalValuesReductionOpportunityFinder
   }
 };
 
-// A dumb reduction opportunity that exists at the start of every function whose
+// A reduction opportunity that exists at the start of every function whose
 // first instruction is an OpVariable instruction. When applied, the OpVariable
 // instruction is duplicated (with a fresh result id). This allows each
 // reduction step to increase the number of variables to check if the validator
@@ -67,7 +67,7 @@ class OpVariableDuplicatorReductionOpportunity : public ReductionOpportunity {
 
   bool PreconditionHolds() override {
     Instruction* first_instruction = &*function_->begin()[0].begin();
-    return first_instruction->opcode() == SpvOpVariable;
+    return first_instruction->opcode() == spv::Op::OpVariable;
   }
 
  protected:
@@ -75,7 +75,7 @@ class OpVariableDuplicatorReductionOpportunity : public ReductionOpportunity {
     // Duplicate the first OpVariable instruction.
 
     Instruction* first_instruction = &*function_->begin()[0].begin();
-    assert(first_instruction->opcode() == SpvOpVariable &&
+    assert(first_instruction->opcode() == spv::Op::OpVariable &&
            "Expected first instruction to be OpVariable");
     IRContext* context = first_instruction->context();
     Instruction* cloned_instruction = first_instruction->Clone(context);
@@ -101,11 +101,11 @@ class OpVariableDuplicatorReductionOpportunityFinder
   }
 
   std::vector<std::unique_ptr<ReductionOpportunity>> GetAvailableOpportunities(
-      IRContext* context) const final {
+      IRContext* context, uint32_t /*unused*/) const final {
     std::vector<std::unique_ptr<ReductionOpportunity>> result;
     for (auto& function : *context->module()) {
       Instruction* first_instruction = &*function.begin()[0].begin();
-      if (first_instruction->opcode() == SpvOpVariable) {
+      if (first_instruction->opcode() == spv::Op::OpVariable) {
         result.push_back(
             MakeUnique<OpVariableDuplicatorReductionOpportunity>(&function));
       }
@@ -523,7 +523,7 @@ TEST(ValidationDuringReductionTest, CheckValidationOptions) {
                OpFunctionEnd
   )";
 
-  spv_target_env env = SPV_ENV_UNIVERSAL_1_3;
+  spv_target_env env = SPV_ENV_VULKAN_1_0;
   std::vector<uint32_t> binary_in;
   SpirvTools t(env);
 

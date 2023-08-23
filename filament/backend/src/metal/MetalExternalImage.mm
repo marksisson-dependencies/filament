@@ -17,6 +17,8 @@
 #include "MetalExternalImage.h"
 
 #include "MetalContext.h"
+#include "MetalEnums.h"
+#include "MetalUtils.h"
 
 #include <utils/Panic.h>
 #include <utils/trap.h>
@@ -30,7 +32,6 @@
 
 namespace filament {
 namespace backend {
-namespace metal {
 
 static const auto cvBufferDeleter = [](const void* buffer) {
     CVBufferRelease((CVMetalTextureRef) buffer);
@@ -69,7 +70,8 @@ ycbcrToRgb(texture2d<half, access::read>  inYTexture    [[texture(0)]],
 }
 )";
 
-MetalExternalImage::MetalExternalImage(MetalContext& context) noexcept : mContext(context) { }
+MetalExternalImage::MetalExternalImage(MetalContext& context, TextureSwizzle r, TextureSwizzle g,
+        TextureSwizzle b, TextureSwizzle a) noexcept : mContext(context), mSwizzle{r, g, b, a} { }
 
 bool MetalExternalImage::isValid() const noexcept {
     return mRgbTexture != nil || mImage != nullptr;
@@ -91,9 +93,13 @@ void MetalExternalImage::set(CVPixelBufferRef image) noexcept {
     ASSERT_POSTCONDITION(planeCount == 0 || planeCount == 2,
             "The Metal backend does not support images with plane counts of %d.", planeCount);
 
+
     if (planeCount == 0) {
         mImage = image;
         mTexture = createTextureFromImage(image, MTLPixelFormatBGRA8Unorm, 0);
+        mTextureView = createSwizzledTextureView(mTexture);
+        mWidth = CVPixelBufferGetWidth(image);
+        mHeight = CVPixelBufferGetHeight(image);
     }
 
     if (planeCount == 2) {
@@ -102,15 +108,16 @@ void MetalExternalImage::set(CVPixelBufferRef image) noexcept {
                 CBCR_PLANE);
 
         // Get the size of luminance plane.
-        size_t width = CVPixelBufferGetWidthOfPlane(image, Y_PLANE);
-        size_t height = CVPixelBufferGetHeightOfPlane(image, Y_PLANE);
+        mWidth = CVPixelBufferGetWidthOfPlane(image, Y_PLANE);
+        mHeight = CVPixelBufferGetHeightOfPlane(image, Y_PLANE);
 
-        mRgbTexture = createRgbTexture(width, height);
-
-        id <MTLCommandBuffer> commandBuffer = encodeColorConversionPass(
+        id<MTLTexture> rgbTexture = createRgbTexture(mWidth, mHeight);
+        id<MTLCommandBuffer> commandBuffer = encodeColorConversionPass(
                 CVMetalTextureGetTexture(yPlane),
                 CVMetalTextureGetTexture(cbcrPlane),
-                mRgbTexture);
+                rgbTexture);
+
+        mRgbTexture = createSwizzledTextureView(rgbTexture);
 
         [commandBuffer addCompletedHandler:^(id <MTLCommandBuffer> o) {
             CVBufferRelease(yPlane);
@@ -149,8 +156,9 @@ void MetalExternalImage::set(CVPixelBufferRef image, size_t plane) noexcept {
     };
 
     const MTLPixelFormat format = getPlaneFormat(plane);
-    assert(format != MTLPixelFormatInvalid);
+    assert_invariant(format != MTLPixelFormatInvalid);
     mTexture = createTextureFromImage(image, format, plane);
+    mTextureView = createSwizzledTextureView(mTexture);
 }
 
 id<MTLTexture> MetalExternalImage::getMetalTextureForDraw() const noexcept {
@@ -170,7 +178,8 @@ id<MTLTexture> MetalExternalImage::getMetalTextureForDraw() const noexcept {
         CVBufferRetain(mTexture);
     }
 
-    return CVMetalTextureGetTexture(mTexture);
+    assert_invariant(mTextureView);
+    return mTextureView;
 }
 
 CVMetalTextureRef MetalExternalImage::createTextureFromImage(CVPixelBufferRef image,
@@ -191,13 +200,22 @@ void MetalExternalImage::shutdown(MetalContext& context) noexcept {
     context.externalImageComputePipelineState = nil;
 }
 
+void MetalExternalImage::assertWritableImage(CVPixelBufferRef image) {
+    OSType formatType = CVPixelBufferGetPixelFormatType(image);
+    ASSERT_PRECONDITION(formatType == kCVPixelFormatType_32BGRA,
+            "Metal SwapChain images must be in the 32BGRA format.");
+}
+
 void MetalExternalImage::unset() {
     CVPixelBufferRelease(mImage);
     CVBufferRelease(mTexture);
 
     mImage = nullptr;
     mTexture = nullptr;
+    mTextureView = nil;
     mRgbTexture = nil;
+    mWidth = 0;
+    mHeight = 0;
 }
 
 id<MTLTexture> MetalExternalImage::createRgbTexture(size_t width, size_t height) {
@@ -210,6 +228,27 @@ id<MTLTexture> MetalExternalImage::createRgbTexture(size_t width, size_t height)
     return [mContext.device newTextureWithDescriptor:descriptor];
 }
 
+id<MTLTexture> MetalExternalImage::createSwizzledTextureView(id<MTLTexture> texture) const {
+    const bool isDefaultSwizzle =
+            mSwizzle.r == TextureSwizzle::CHANNEL_0 &&
+            mSwizzle.g == TextureSwizzle::CHANNEL_1 &&
+            mSwizzle.b == TextureSwizzle::CHANNEL_2 &&
+            mSwizzle.a == TextureSwizzle::CHANNEL_3;
+    if (!isDefaultSwizzle && mContext.supportsTextureSwizzling) {
+        // Even though we've already checked supportsTextureSwizzling, we still need to guard these
+        // calls with @availability, otherwise the API usage will generate compiler warnings.
+        if (@available(iOS 13, *)) {
+            texture = createTextureViewWithSwizzle(texture,
+                    getSwizzleChannels(mSwizzle.r, mSwizzle.g, mSwizzle.b, mSwizzle.a));
+        }
+    }
+    return texture;
+}
+
+id<MTLTexture> MetalExternalImage::createSwizzledTextureView(CVMetalTextureRef ref) const {
+    id<MTLTexture> texture = CVMetalTextureGetTexture(ref);
+    return createSwizzledTextureView(texture);
+}
 
 void MetalExternalImage::ensureComputePipelineState() {
     if (mContext.externalImageComputePipelineState != nil) {
@@ -260,6 +299,5 @@ id<MTLCommandBuffer> MetalExternalImage::encodeColorConversionPass(id<MTLTexture
     return commandBuffer;
 }
 
-} // namespace metal
 } // namespace backend
 } // namespace filament

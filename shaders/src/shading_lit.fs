@@ -2,32 +2,43 @@
 // Lighting
 //------------------------------------------------------------------------------
 
+#if defined(BLEND_MODE_MASKED)
+float computeMaskedAlpha(float a) {
+    // Use derivatives to smooth alpha tested edges
+    return (a - getMaskThreshold()) / max(fwidth(a), 1e-3) + 0.5;
+}
+
 float computeDiffuseAlpha(float a) {
-#if defined(BLEND_MODE_TRANSPARENT) || defined(BLEND_MODE_FADE) || defined(BLEND_MODE_MASKED)
+    // If we reach this point in the code, we already know that the fragment is not discarded due
+    // to the threshold factor. Therefore we can just output 1.0, which prevents a "punch through"
+    // effect from occuring. We do this only for TRANSLUCENT views in order to prevent breakage
+    // of ALPHA_TO_COVERAGE.
+    return (frameUniforms.needsAlphaChannel == 1.0) ? 1.0 : a;
+}
+
+void applyAlphaMask(inout vec4 baseColor) {
+    baseColor.a = computeMaskedAlpha(baseColor.a);
+    if (baseColor.a <= 0.0) {
+        discard;
+    }
+}
+
+#else // not masked
+
+float computeDiffuseAlpha(float a) {
+#if defined(BLEND_MODE_TRANSPARENT) || defined(BLEND_MODE_FADE)
     return a;
 #else
     return 1.0;
 #endif
 }
 
-#if defined(BLEND_MODE_MASKED)
-float computeMaskedAlpha(float a) {
-    // Use derivatives to smooth alpha tested edges
-    return (a - getMaskThreshold()) / max(fwidth(a), 1e-3) + 0.5;
-}
-#endif
+void applyAlphaMask(inout vec4 baseColor) {}
 
-void applyAlphaMask(inout vec4 baseColor) {
-#if defined(BLEND_MODE_MASKED)
-    baseColor.a = computeMaskedAlpha(baseColor.a);
-    if (baseColor.a <= 0.0) {
-        discard;
-    }
 #endif
-}
 
 #if defined(GEOMETRIC_SPECULAR_AA)
-float normalFiltering(float perceptualRoughness, const vec3 worldNormal) {
+float normalFiltering(float perceptualRoughness, vec3 worldNormal) {
     // Kaplanyan 2016, "Stable specular highlights"
     // Tokuyoshi 2017, "Error Reduction and Simplification for Shading Anti-Aliasing"
     // Tokuyoshi and Kaplanyan 2019, "Improved Geometric Specular Antialiasing"
@@ -52,7 +63,7 @@ float normalFiltering(float perceptualRoughness, const vec3 worldNormal) {
 }
 #endif
 
-void getCommonPixelParams(const MaterialInputs material, inout PixelParams pixel) {
+void getCommonPixelParams(MaterialInputs material, inout PixelParams pixel) {
     vec4 baseColor = material.baseColor;
     applyAlphaMask(baseColor);
 
@@ -71,18 +82,14 @@ void getCommonPixelParams(const MaterialInputs material, inout PixelParams pixel
     pixel.diffuseColor = computeDiffuseColor(baseColor, metallic);
     pixel.f0 = specularColor;
 #elif !defined(SHADING_MODEL_CLOTH)
-#if defined(HAS_REFRACTION) && (!defined(MATERIAL_HAS_REFLECTANCE) && defined(MATERIAL_HAS_IOR))
-    pixel.diffuseColor = baseColor.rgb;
-    // If refraction is enabled, and reflectance is not set in the material, but ior is,
-    // then use it -- othterwise proceed as usual.
-    pixel.f0 = vec3(iorToF0(material.ior, 1.0));
-#else
     pixel.diffuseColor = computeDiffuseColor(baseColor, material.metallic);
+#if !defined(SHADING_MODEL_SUBSURFACE) && (!defined(MATERIAL_HAS_REFLECTANCE) && defined(MATERIAL_HAS_IOR))
+    float reflectance = iorToF0(max(1.0, material.ior), 1.0);
+#else
     // Assumes an interface from air to an IOR of 1.5 for dielectrics
     float reflectance = computeDielectricF0(material.reflectance);
-    pixel.f0 = computeF0(baseColor, material.metallic, reflectance);
 #endif
-
+    pixel.f0 = computeF0(baseColor, material.metallic, reflectance);
 #else
     pixel.diffuseColor = baseColor.rgb;
     pixel.f0 = material.sheenColor;
@@ -91,7 +98,8 @@ void getCommonPixelParams(const MaterialInputs material, inout PixelParams pixel
 #endif
 #endif
 
-#if defined(HAS_REFRACTION)
+#if !defined(SHADING_MODEL_CLOTH) && !defined(SHADING_MODEL_SUBSURFACE)
+#if defined(MATERIAL_HAS_REFRACTION)
     // Air's Index of refraction is 1.000277 at STP but everybody uses 1.0
     const float airIor = 1.0;
 #if !defined(MATERIAL_HAS_IOR)
@@ -126,9 +134,27 @@ void getCommonPixelParams(const MaterialInputs material, inout PixelParams pixel
     pixel.uThickness = 0.0;
 #endif
 #endif
+#endif
 }
 
-void getClearCoatPixelParams(const MaterialInputs material, inout PixelParams pixel) {
+void getSheenPixelParams(MaterialInputs material, inout PixelParams pixel) {
+#if defined(MATERIAL_HAS_SHEEN_COLOR) && !defined(SHADING_MODEL_CLOTH) && !defined(SHADING_MODEL_SUBSURFACE)
+    pixel.sheenColor = material.sheenColor;
+
+    float sheenPerceptualRoughness = material.sheenRoughness;
+    sheenPerceptualRoughness = clamp(sheenPerceptualRoughness, MIN_PERCEPTUAL_ROUGHNESS, 1.0);
+
+#if defined(GEOMETRIC_SPECULAR_AA)
+    sheenPerceptualRoughness =
+            normalFiltering(sheenPerceptualRoughness, getWorldGeometricNormalVector());
+#endif
+
+    pixel.sheenPerceptualRoughness = sheenPerceptualRoughness;
+    pixel.sheenRoughness = perceptualRoughnessToRoughness(sheenPerceptualRoughness);
+#endif
+}
+
+void getClearCoatPixelParams(MaterialInputs material, inout PixelParams pixel) {
 #if defined(MATERIAL_HAS_CLEAR_COAT)
     pixel.clearCoat = material.clearCoat;
 
@@ -155,7 +181,7 @@ void getClearCoatPixelParams(const MaterialInputs material, inout PixelParams pi
 #endif
 }
 
-void getRoughnessPixelParams(const MaterialInputs material, inout PixelParams pixel) {
+void getRoughnessPixelParams(MaterialInputs material, inout PixelParams pixel) {
 #if defined(SHADING_MODEL_SPECULAR_GLOSSINESS)
     float perceptualRoughness = computeRoughnessFromGlossiness(material.glossiness);
 #else
@@ -183,20 +209,11 @@ void getRoughnessPixelParams(const MaterialInputs material, inout PixelParams pi
     pixel.roughness = perceptualRoughnessToRoughness(pixel.perceptualRoughness);
 }
 
-void getSubsurfacePixelParams(const MaterialInputs material, inout PixelParams pixel) {
+void getSubsurfacePixelParams(MaterialInputs material, inout PixelParams pixel) {
 #if defined(SHADING_MODEL_SUBSURFACE)
     pixel.subsurfacePower = material.subsurfacePower;
     pixel.subsurfaceColor = material.subsurfaceColor;
     pixel.thickness = saturate(material.thickness);
-#endif
-}
-
-void getAnisotropyPixelParams(const MaterialInputs material, inout PixelParams pixel) {
-#if defined(MATERIAL_HAS_ANISOTROPY)
-    vec3 direction = material.anisotropyDirection;
-    pixel.anisotropy = material.anisotropy;
-    pixel.anisotropicT = normalize(shading_tangentToWorld * direction);
-    pixel.anisotropicB = normalize(cross(getWorldGeometricNormalVector(), pixel.anisotropicT));
 #endif
 }
 
@@ -211,6 +228,13 @@ void getEnergyCompensationPixelParams(inout PixelParams pixel) {
 #else
     pixel.energyCompensation = vec3(1.0);
 #endif
+
+#if !defined(SHADING_MODEL_CLOTH)
+#if defined(MATERIAL_HAS_SHEEN_COLOR)
+    pixel.sheenDFG = prefilteredDFG(pixel.sheenPerceptualRoughness, shading_NoV).z;
+    pixel.sheenScaling = 1.0 - max3(pixel.sheenColor) * pixel.sheenDFG;
+#endif
+#endif
 }
 
 /**
@@ -221,8 +245,9 @@ void getEnergyCompensationPixelParams(inout PixelParams pixel) {
  * This function is also responsible for discarding the fragment when alpha
  * testing fails.
  */
-void getPixelParams(const MaterialInputs material, out PixelParams pixel) {
+void getPixelParams(MaterialInputs material, out PixelParams pixel) {
     getCommonPixelParams(material, pixel);
+    getSheenPixelParams(material, pixel);
     getClearCoatPixelParams(material, pixel);
     getRoughnessPixelParams(material, pixel);
     getSubsurfacePixelParams(material, pixel);
@@ -240,7 +265,7 @@ void getPixelParams(const MaterialInputs material, out PixelParams pixel) {
  *
  * Returns a pre-exposed HDR RGBA color in linear space.
  */
-vec4 evaluateLights(const MaterialInputs material) {
+vec4 evaluateLights(MaterialInputs material) {
     PixelParams pixel;
     getPixelParams(material, pixel);
 
@@ -253,12 +278,12 @@ vec4 evaluateLights(const MaterialInputs material) {
     // it also saves 1 shader variant
     evaluateIBL(material, pixel, color);
 
-#if defined(HAS_DIRECTIONAL_LIGHTING)
+#if defined(VARIANT_HAS_DIRECTIONAL_LIGHTING)
     evaluateDirectionalLight(material, pixel, color);
 #endif
 
-#if defined(HAS_DYNAMIC_LIGHTING)
-    evaluatePunctualLights(pixel, color);
+#if defined(VARIANT_HAS_DYNAMIC_LIGHTING)
+    evaluatePunctualLights(material, pixel, color);
 #endif
 
 #if defined(BLEND_MODE_FADE) && !defined(SHADING_MODEL_UNLIT)
@@ -270,11 +295,11 @@ vec4 evaluateLights(const MaterialInputs material) {
     return vec4(color, computeDiffuseAlpha(material.baseColor.a));
 }
 
-void addEmissive(const MaterialInputs material, inout vec4 color) {
+void addEmissive(MaterialInputs material, inout vec4 color) {
 #if defined(MATERIAL_HAS_EMISSIVE)
     highp vec4 emissive = material.emissive;
-    highp float attenuation = mix(1.0, frameUniforms.exposure, emissive.w);
-    color.rgb += emissive.rgb * attenuation;
+    highp float attenuation = mix(1.0, getExposure(), emissive.w);
+    color.rgb += emissive.rgb * (attenuation * color.a);
 #endif
 }
 
@@ -284,7 +309,7 @@ void addEmissive(const MaterialInputs material, inout vec4 color) {
  *
  * Returns a pre-exposed HDR RGBA color in linear space.
  */
-vec4 evaluateMaterial(const MaterialInputs material) {
+vec4 evaluateMaterial(MaterialInputs material) {
     vec4 color = evaluateLights(material);
     addEmissive(material, color);
     return color;

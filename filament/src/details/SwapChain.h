@@ -17,7 +17,7 @@
 #ifndef TNT_FILAMENT_DETAILS_SWAPCHAIN_H
 #define TNT_FILAMENT_DETAILS_SWAPCHAIN_H
 
-#include "upcast.h"
+#include "downcast.h"
 
 #include "private/backend/DriverApi.h"
 
@@ -59,13 +59,20 @@ public:
       return mSwapChain;
     }
 
+    void setFrameScheduledCallback(FrameScheduledCallback callback, void* user);
+
+    void setFrameCompletedCallback(FrameCompletedCallback callback, void* user);
+
+    static bool isSRGBSwapChainSupported(FEngine& engine) noexcept;
+
 private:
+    FEngine& mEngine;
     backend::Handle<backend::HwSwapChain> mSwapChain;
     void* mNativeWindow = nullptr;
     uint64_t mConfigFlags = 0;
 };
 
-FILAMENT_UPCAST(SwapChain)
+FILAMENT_DOWNCAST(SwapChain)
 
 } // namespace filament
 

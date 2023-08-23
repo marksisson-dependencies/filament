@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.19)
 project(filamesh)
 
 set(TARGET filamesh)
@@ -20,6 +20,7 @@ target_link_libraries(${TARGET} PUBLIC math)
 target_link_libraries(${TARGET} PUBLIC utils)
 target_link_libraries(${TARGET} PUBLIC assimp)
 target_link_libraries(${TARGET} PRIVATE getopt filameshio meshoptimizer)
+set_target_properties(${TARGET} PROPERTIES FOLDER Tools)
 
 # ==================================================================================================
 # Compile options and optimizations

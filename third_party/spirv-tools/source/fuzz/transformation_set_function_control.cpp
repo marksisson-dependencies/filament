@@ -18,8 +18,8 @@ namespace spvtools {
 namespace fuzz {
 
 TransformationSetFunctionControl::TransformationSetFunctionControl(
-    const spvtools::fuzz::protobufs::TransformationSetFunctionControl& message)
-    : message_(message) {}
+    protobufs::TransformationSetFunctionControl message)
+    : message_(std::move(message)) {}
 
 TransformationSetFunctionControl::TransformationSetFunctionControl(
     uint32_t function_id, uint32_t function_control) {
@@ -28,9 +28,9 @@ TransformationSetFunctionControl::TransformationSetFunctionControl(
 }
 
 bool TransformationSetFunctionControl::IsApplicable(
-    opt::IRContext* context, const FactManager& /*unused*/) const {
+    opt::IRContext* ir_context, const TransformationContext& /*unused*/) const {
   opt::Instruction* function_def_instruction =
-      FindFunctionDefInstruction(context);
+      FindFunctionDefInstruction(ir_context);
   if (!function_def_instruction) {
     // The given function id does not correspond to any function.
     return false;
@@ -40,9 +40,9 @@ bool TransformationSetFunctionControl::IsApplicable(
 
   // Check (via an assertion) that function control mask doesn't have any bad
   // bits set.
-  uint32_t acceptable_function_control_bits =
-      SpvFunctionControlInlineMask | SpvFunctionControlDontInlineMask |
-      SpvFunctionControlPureMask | SpvFunctionControlConstMask;
+  uint32_t acceptable_function_control_bits = uint32_t(
+      spv::FunctionControlMask::Inline | spv::FunctionControlMask::DontInline |
+      spv::FunctionControlMask::Pure | spv::FunctionControlMask::Const);
   // The following is to keep release-mode compilers happy as this variable is
   // only used in an assertion.
   (void)(acceptable_function_control_bits);
@@ -51,17 +51,19 @@ bool TransformationSetFunctionControl::IsApplicable(
 
   // Check (via an assertion) that function control mask does not have both
   // Inline and DontInline bits set.
-  assert(!((message_.function_control() & SpvFunctionControlInlineMask) &&
-           (message_.function_control() & SpvFunctionControlDontInlineMask)) &&
+  assert(!((message_.function_control() &
+            (uint32_t)spv::FunctionControlMask::Inline) &&
+           (message_.function_control() &
+            (uint32_t)spv::FunctionControlMask::DontInline)) &&
          "It is not OK to set both the 'Inline' and 'DontInline' bits of a "
          "function control mask");
 
   // Check that Const and Pure are only present if they were present on the
   // original function
   for (auto mask_bit :
-       {SpvFunctionControlPureMask, SpvFunctionControlConstMask}) {
-    if ((message_.function_control() & mask_bit) &&
-        !(existing_function_control_mask & mask_bit)) {
+       {spv::FunctionControlMask::Pure, spv::FunctionControlMask::Const}) {
+    if ((message_.function_control() & uint32_t(mask_bit)) &&
+        !(existing_function_control_mask & uint32_t(mask_bit))) {
       return false;
     }
   }
@@ -69,10 +71,10 @@ bool TransformationSetFunctionControl::IsApplicable(
   return true;
 }
 
-void TransformationSetFunctionControl::Apply(opt::IRContext* context,
-                                             FactManager* /*unused*/) const {
+void TransformationSetFunctionControl::Apply(
+    opt::IRContext* ir_context, TransformationContext* /*unused*/) const {
   opt::Instruction* function_def_instruction =
-      FindFunctionDefInstruction(context);
+      FindFunctionDefInstruction(ir_context);
   function_def_instruction->SetInOperand(0, {message_.function_control()});
 }
 
@@ -83,17 +85,22 @@ protobufs::Transformation TransformationSetFunctionControl::ToMessage() const {
 }
 
 opt::Instruction* TransformationSetFunctionControl ::FindFunctionDefInstruction(
-    opt::IRContext* context) const {
+    opt::IRContext* ir_context) const {
   // Look through all functions for a function whose defining instruction's
   // result id matches |message_.function_id|, returning the defining
   // instruction if found.
-  for (auto& function : *context->module()) {
+  for (auto& function : *ir_context->module()) {
     if (function.DefInst().result_id() == message_.function_id()) {
       return &function.DefInst();
     }
   }
   // A nullptr result indicates that no match was found.
   return nullptr;
+}
+
+std::unordered_set<uint32_t> TransformationSetFunctionControl::GetFreshIds()
+    const {
+  return std::unordered_set<uint32_t>();
 }
 
 }  // namespace fuzz

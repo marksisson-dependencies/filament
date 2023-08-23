@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.19)
 project(filagui C ASM)
 
 set(TARGET filagui)
@@ -80,9 +80,10 @@ include_directories(${GENERATION_ROOT})
 
 add_library(${TARGET} STATIC ${PUBLIC_HDRS} ${SRCS} ${RESGEN_SOURCE})
 
-target_link_libraries(${TARGET} PUBLIC imgui filament filamat)
+target_link_libraries(${TARGET} PUBLIC imgui filament)
 
 target_include_directories(${TARGET} PUBLIC ${PUBLIC_HDR_DIR})
+set_target_properties(${TARGET} PROPERTIES FOLDER Libs)
 
 # ==================================================================================================
 # Compiler flags
@@ -90,6 +91,5 @@ target_include_directories(${TARGET} PUBLIC ${PUBLIC_HDR_DIR})
 if (NOT MSVC)
     target_compile_options(${TARGET} PRIVATE
             -Wno-deprecated-register
-            $<$<CONFIG:Release>:-ffast-math>
     )
 endif()

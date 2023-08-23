@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.19)
 project(filament-benchmarks)
 
 # ==================================================================================================
@@ -11,3 +11,5 @@ set(BENCHMARK_SRCS
 add_executable(benchmark_filament ${BENCHMARK_SRCS})
 
 target_link_libraries(benchmark_filament PRIVATE benchmark_main utils math filament)
+
+set_target_properties(benchmark_filament PROPERTIES FOLDER Benchmarks)

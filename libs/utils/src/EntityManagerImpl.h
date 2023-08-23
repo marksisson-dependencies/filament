@@ -23,6 +23,7 @@
 #include <utils/Entity.h>
 #include <utils/Mutex.h>
 #include <utils/CallStack.h>
+#include <utils/FixedCapacityVector.h>
 
 #include <tsl/robin_set.h>
 
@@ -47,6 +48,7 @@ public:
     using EntityManager::create;
     using EntityManager::destroy;
 
+    UTILS_NOINLINE
     void create(size_t n, Entity* entities) {
         Entity::Type index{};
         auto& freeList = mFreeList;
@@ -85,6 +87,7 @@ public:
         mCurrentIndex = currentIndex;
     }
 
+    UTILS_NOINLINE
     void destroy(size_t n, Entity* entities) noexcept {
         auto& freeList = mFreeList;
         uint8_t* const gens = mGens;
@@ -136,17 +139,6 @@ public:
         mListeners.erase(l);
     }
 
-    std::vector<EntityManager::Listener*> getListeners() const noexcept {
-        std::unique_lock<Mutex> lock(mListenerLock);
-        tsl::robin_set<Listener*> const& listeners = mListeners;
-        std::vector<EntityManager::Listener*> result(listeners.size()); // unfortunately this memset()
-        auto d = result.begin();
-        for (Listener* listener : listeners) {
-            *d++ = listener;
-        }
-        return result; // the c++ standard guarantees a move
-    }
-
 #if FILAMENT_UTILS_TRACK_ENTITIES
     std::vector<Entity> getActiveEntities() const {
         std::vector<Entity> result(mDebugActiveEntities.size());
@@ -167,6 +159,15 @@ public:
 #endif
 
 private:
+    utils::FixedCapacityVector<EntityManager::Listener*> getListeners() const noexcept {
+        std::lock_guard<Mutex> lock(mListenerLock);
+        tsl::robin_set<Listener*> const& listeners = mListeners;
+        utils::FixedCapacityVector<EntityManager::Listener*> result(listeners.size());
+        result.resize(result.capacity()); // unfortunately this memset()
+        std::copy(listeners.begin(), listeners.end(), result.begin());
+        return result; // the c++ standard guarantees a move
+    }
+
     uint32_t mCurrentIndex = 1;
 
     // stores indices that got freed
@@ -177,7 +178,7 @@ private:
     tsl::robin_set<Listener*> mListeners;
 
 #if FILAMENT_UTILS_TRACK_ENTITIES
-    tsl::robin_map<Entity, CallStack> mDebugActiveEntities;
+    tsl::robin_map<Entity, CallStack, Entity::Hasher> mDebugActiveEntities;
 #endif
 };
 

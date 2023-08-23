@@ -27,8 +27,10 @@ import android.view.animation.LinearInterpolator
 
 import com.google.android.filament.*
 import com.google.android.filament.RenderableManager.*
+import com.google.android.filament.Renderer.ClearOptions
 import com.google.android.filament.VertexBuffer.*
 import com.google.android.filament.android.DisplayHelper
+import com.google.android.filament.android.FilamentHelper
 import com.google.android.filament.android.UiHelper
 
 import java.nio.ByteBuffer
@@ -64,7 +66,7 @@ class MainActivity : Activity() {
     private lateinit var view0: View
     private lateinit var view1: View
     private lateinit var view2: View
-    private lateinit var view3: View
+    private lateinit var view4: View
     // We need skybox to set the background color
     private lateinit var skybox: Skybox
     // Should be pretty obvious :)
@@ -118,29 +120,37 @@ class MainActivity : Activity() {
         view0 = engine.createView()
         view1 = engine.createView()
         view2 = engine.createView()
-        view3 = engine.createView()
+        view4 = engine.createView()
 
         view0.setName("view0");
         view1.setName("view1");
         view2.setName("view2");
-        view3.setName("view3");
+        view4.setName("view4");
+
+//  Useful for debugging issues
+//        view0.isPostProcessingEnabled = false
+//        view1.isPostProcessingEnabled = false
+//        view2.isPostProcessingEnabled = false
+//        view4.isPostProcessingEnabled = false
+
+        view4.blendMode = View.BlendMode.TRANSLUCENT;
 
         skybox =  Skybox.Builder().build(engine);
         scene.skybox = skybox
 
-        camera = engine.createCamera()
+        camera = engine.createCamera(engine.entityManager.create())
     }
 
     private fun setupViews() {
         view0.camera = camera
         view1.camera = camera
         view2.camera = camera
-        view3.camera = camera
+        view4.camera = camera
 
         view0.scene = scene
         view1.scene = scene
         view2.scene = scene
-        view3.scene = scene
+        view4.scene = scene
     }
 
     private fun setupScene() {
@@ -372,16 +382,17 @@ class MainActivity : Activity() {
         engine.destroyView(view0)
         engine.destroyView(view1)
         engine.destroyView(view2)
-        engine.destroyView(view3)
+        engine.destroyView(view4)
         engine.destroySkybox(skybox)
         engine.destroyScene(scene)
-        engine.destroyCamera(camera)
+        engine.destroyCameraComponent(camera.entity)
 
         // Engine.destroyEntity() destroys Filament related resources only
         // (components), not the entity itself
         val entityManager = EntityManager.get()
         entityManager.destroy(light)
         entityManager.destroy(renderable)
+        entityManager.destroy(camera.entity)
 
         // Destroying the engine will free up any resource you may have forgotten
         // to destroy, but it's recommended to do the cleanup properly
@@ -398,17 +409,19 @@ class MainActivity : Activity() {
                 // If beginFrame() returns false you should skip the frame
                 // This means you are sending frames too quickly to the GPU
                 if (renderer.beginFrame(swapChain!!, frameTimeNanos)) {
-                    skybox.setColor(0.035f, 0.035f, 0.035f, 1.0f);
+                    scene.skybox = skybox
+                    skybox.setColor(0.35f, 0.35f, 0.35f, 1.0f);
+
                     renderer.render(view0)
 
-                    skybox.setColor(1.0f, 0.0f, 0.0f, 1.0f);
+                    skybox.setColor(1.0f, 1.0f, 0.0f, 1.0f);
+
                     renderer.render(view1)
 
-                    skybox.setColor(0.0f, 1.0f, 0.0f, 1.0f);
-                    renderer.render(view2)
+                    scene.skybox = null
 
-                    skybox.setColor(0.0f, 0.0f, 1.0f, 1.0f);
-                    renderer.render(view3)
+                    renderer.render(view2)
+                    renderer.render(view4)
 
                     renderer.endFrame()
                 }
@@ -421,6 +434,10 @@ class MainActivity : Activity() {
             swapChain?.let { engine.destroySwapChain(it) }
             swapChain = engine.createSwapChain(surface)
             renderer.setDisplayInfo(DisplayHelper.getDisplayInfo(surfaceView.display, Renderer.DisplayInfo()))
+            renderer.clearOptions = renderer.clearOptions.apply {
+                clear = true
+                clearColor = floatArrayOf( 0.0f, 0.0f, 1.0f, 0.0f )
+            }
         }
 
         override fun onDetachedFromSurface() {
@@ -441,7 +458,9 @@ class MainActivity : Activity() {
             view0.viewport = Viewport(0,         0,          width / 2, height / 2)
             view1.viewport = Viewport(width / 2, 0,          width / 2, height / 2)
             view2.viewport = Viewport(0,         height / 2, width / 2, height / 2)
-            view3.viewport = Viewport(width / 2, height / 2, width / 2, height / 2)
+            view4.viewport = Viewport(width / 4, height / 4, width / 2, height / 2)
+
+            FilamentHelper.synchronizePendingFrames(engine)
         }
     }
 

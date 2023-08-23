@@ -3,7 +3,7 @@
 #if !defined(MATERIAL_HAS_SUBSURFACE_COLOR)
     #define MATERIAL_CAN_SKIP_LIGHTING
 #endif
-#elif defined(SHADING_MODEL_SUBSURFACE)
+#elif defined(SHADING_MODEL_SUBSURFACE) || defined(MATERIAL_HAS_CUSTOM_SURFACE_SHADING)
     // Cannot skip lighting
 #else
     #define MATERIAL_CAN_SKIP_LIGHTING
@@ -23,13 +23,18 @@ struct MaterialInputs {
 #endif
     vec4  emissive;
 
+#if !defined(SHADING_MODEL_CLOTH) && !defined(SHADING_MODEL_SUBSURFACE) && !defined(SHADING_MODEL_UNLIT)
+    vec3 sheenColor;
+    float sheenRoughness;
+#endif
+
     float clearCoat;
     float clearCoatRoughness;
 
     float anisotropy;
     vec3  anisotropyDirection;
 
-#if defined(SHADING_MODEL_SUBSURFACE) || defined(HAS_REFRACTION)
+#if defined(SHADING_MODEL_SUBSURFACE) || defined(MATERIAL_HAS_REFRACTION)
     float thickness;
 #endif
 #if defined(SHADING_MODEL_SUBSURFACE)
@@ -63,7 +68,8 @@ struct MaterialInputs {
     vec4  postLightingColor;
 #endif
 
-#if defined(HAS_REFRACTION)
+#if !defined(SHADING_MODEL_CLOTH) && !defined(SHADING_MODEL_SUBSURFACE) && !defined(SHADING_MODEL_UNLIT)
+#if defined(MATERIAL_HAS_REFRACTION)
 #if defined(MATERIAL_HAS_ABSORPTION)
     vec3 absorption;
 #endif
@@ -75,6 +81,11 @@ struct MaterialInputs {
 #endif
 #if defined(MATERIAL_HAS_MICRO_THICKNESS) && (REFRACTION_TYPE == REFRACTION_TYPE_THIN)
     float microThickness;
+#endif
+#elif !defined(SHADING_MODEL_SPECULAR_GLOSSINESS)
+#if defined(MATERIAL_HAS_IOR)
+    float ior;
+#endif
 #endif
 #endif
 };
@@ -93,6 +104,13 @@ void initMaterial(out MaterialInputs material) {
 #endif
     material.emissive = vec4(vec3(0.0), 1.0);
 
+#if !defined(SHADING_MODEL_CLOTH) && !defined(SHADING_MODEL_SUBSURFACE) && !defined(SHADING_MODEL_UNLIT)
+#if defined(MATERIAL_HAS_SHEEN_COLOR)
+    material.sheenColor = vec3(0.0);
+    material.sheenRoughness = 0.0;
+#endif
+#endif
+
 #if defined(MATERIAL_HAS_CLEAR_COAT)
     material.clearCoat = 1.0;
     material.clearCoatRoughness = 0.0;
@@ -103,7 +121,7 @@ void initMaterial(out MaterialInputs material) {
     material.anisotropyDirection = vec3(1.0, 0.0, 0.0);
 #endif
 
-#if defined(SHADING_MODEL_SUBSURFACE) || defined(HAS_REFRACTION)
+#if defined(SHADING_MODEL_SUBSURFACE) || defined(MATERIAL_HAS_REFRACTION)
     material.thickness = 0.5;
 #endif
 #if defined(SHADING_MODEL_SUBSURFACE)
@@ -137,7 +155,8 @@ void initMaterial(out MaterialInputs material) {
     material.postLightingColor = vec4(0.0);
 #endif
 
-#if defined(HAS_REFRACTION)
+#if !defined(SHADING_MODEL_CLOTH) && !defined(SHADING_MODEL_SUBSURFACE) && !defined(SHADING_MODEL_UNLIT)
+#if defined(MATERIAL_HAS_REFRACTION)
 #if defined(MATERIAL_HAS_ABSORPTION)
     material.absorption = vec3(0.0);
 #endif
@@ -150,5 +169,30 @@ void initMaterial(out MaterialInputs material) {
 #if defined(MATERIAL_HAS_MICRO_THICKNESS) && (REFRACTION_TYPE == REFRACTION_TYPE_THIN)
     material.microThickness = 0.0;
 #endif
+#elif !defined(SHADING_MODEL_SPECULAR_GLOSSINESS)
+#if defined(MATERIAL_HAS_IOR)
+    material.ior = 1.5;
+#endif
+#endif
 #endif
 }
+
+#if defined(MATERIAL_HAS_CUSTOM_SURFACE_SHADING)
+/** @public-api */
+struct LightData {
+    vec4  colorIntensity;
+    vec3  l;
+    float NdotL;
+    vec3  worldPosition;
+    float attenuation;
+    float visibility;
+};
+
+/** @public-api */
+struct ShadingData {
+    vec3  diffuseColor;
+    float perceptualRoughness;
+    vec3  f0;
+    float roughness;
+};
+#endif

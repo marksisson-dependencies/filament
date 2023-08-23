@@ -4,29 +4,24 @@
 
 To build Filament, you must first install the following tools:
 
-- CMake 3.10 (or more recent)
-- clang 7.0 (or more recent)
-- [ninja 1.8](https://github.com/ninja-build/ninja/wiki/Pre-built-Ninja-packages) (or more recent)
-
-To build the Java based components of the project you can optionally install (recommended):
-
-- OpenJDK 1.8 (or more recent)
+- CMake 3.19 (or more recent)
+- clang 14.0 (or more recent)
+- [ninja 1.10](https://github.com/ninja-build/ninja/wiki/Pre-built-Ninja-packages) (or more recent)
 
 Additional dependencies may be required for your operating system. Please refer to the appropriate
 section below.
 
 To build Filament for Android you must also install the following:
 
-- Android Studio 4.0.1 or more recent
+- Android Studio Flamingo or more recent
 - Android SDK
-- Android NDK "side-by-side" 21.3 or higher
+- Android NDK 25.1 or higher
+- Java 17
 
 ### Environment variables
 
-Make sure the environment variable `ANDROID_HOME` points to the location of your Android SDK.
-
-By default our build system will attempt to compile the Java bindings. To do so, the environment
-variable `JAVA_HOME` should point to the location of your JDK.
+To build Filament for Android, make sure the environment variable `ANDROID_HOME` points to the
+location of your Android SDK.
 
 When building for WebGL, you'll also need to set `EMSDK`. See [WebAssembly](#webassembly).
 
@@ -65,25 +60,13 @@ To install the libraries and executables in `out/debug/` and `out/release/`, add
 You can force a clean build by adding the `-c` flag. The script offers more features described
 by executing `build.sh -h`.
 
-### Disabling Java builds
-
-By default our build system will attempt to compile the Java bindings. If you wish to skip this
-compilation step simply pass the `-j` flag to `build.sh`:
-
-```
-$ ./build.sh -j release
-```
-
-If you use CMake directly instead of the build script, pass `-DFILAMENT_ENABLE_JAVA=OFF`
-to CMake instead.
-
 ### Filament-specific CMake Options
 
 The following CMake options are boolean options specific to Filament:
 
-- `FILAMENT_ENABLE_JAVA`:          Compile Java projects: requires a JDK and the JAVA_HOME env var
 - `FILAMENT_ENABLE_LTO`:           Enable link-time optimizations if supported by the compiler
 - `FILAMENT_BUILD_FILAMAT`:        Build filamat and JNI buildings
+- `FILAMENT_SUPPORTS_OPENGL`:      Include the OpenGL backend
 - `FILAMENT_SUPPORTS_METAL`:       Include the Metal backend
 - `FILAMENT_SUPPORTS_VULKAN`:      Include the Vulkan backend
 - `FILAMENT_INSTALL_BACKEND_TEST`: Install the backend test library so it can be consumed on iOS
@@ -95,7 +78,7 @@ To turn an option on or off:
 
 ```
 $ cd <cmake-build-directory>
-$ cmake . -DOPTION=ON       # Relace OPTION with the option name, set to ON / OFF
+$ cmake . -DOPTION=ON       # Replace OPTION with the option name, set to ON / OFF
 ```
 
 Options can also be set with the CMake GUI.
@@ -104,12 +87,14 @@ Options can also be set with the CMake GUI.
 
 Make sure you've installed the following dependencies:
 
-- `clang-7` or higher
+- `clang-14` or higher
 - `libglu1-mesa-dev`
-- `libc++-7-dev` (`libcxx-devel` and `libcxx-static` on Fedora) or higher
-- `libc++abi-7-dev` (`libcxxabi-static` on Fedora) or higher
+- `libc++-14-dev` (`libcxx-devel` and `libcxx-static` on Fedora) or higher
+- `libc++abi-14-dev` (`libcxxabi-static` on Fedora) or higher
 - `ninja-build`
 - `libxi-dev`
+- `libxcomposite-dev` (`libXcomposite-devel` on Fedora)
+- `libxxf86vm-dev` (`libXxf86vm-devel` on Fedora)
 
 After dependencies have been installed, we highly recommend using the [easy build](#easy-build)
 script.
@@ -129,7 +114,7 @@ Your Linux distribution might default to `gcc` instead of `clang`, if that's the
 ```
 $ mkdir out/cmake-release
 $ cd out/cmake-release
-# Or use a specific version of clang, for instance /usr/bin/clang-7
+# Or use a specific version of clang, for instance /usr/bin/clang-14
 $ CC=/usr/bin/clang CXX=/usr/bin/clang++ CXXFLAGS=-stdlib=libc++ \
     cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../release/filament ../..
 ```
@@ -139,8 +124,8 @@ solution is to use `update-alternatives` to both change the default compiler, an
 specific version of clang:
 
 ```
-$ update-alternatives --install /usr/bin/clang clang /usr/bin/clang-7 100
-$ update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-7 100
+$ update-alternatives --install /usr/bin/clang clang /usr/bin/clang-14 100
+$ update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-14 100
 $ update-alternatives --install /usr/bin/cc cc /usr/bin/clang 100
 $ update-alternatives --install /usr/bin/c++ c++ /usr/bin/clang++ 100
 ```
@@ -162,13 +147,8 @@ make sure the command line tools are setup by running:
 $ xcode-select --install
 ```
 
-After installing Java 1.8 you must also ensure that your `JAVA_HOME` environment variable is
-properly set. If it doesn't already point to the appropriate JDK, you can simply add the following
-to your `.profile`:
-
-```
-export JAVA_HOME="$(/usr/libexec/java_home)"
-```
+If you wish to run the Vulkan backend instead of the default Metal backend, you must install
+the LunarG SDK, enable "System Global Components", and reboot your machine.
 
 Then run `cmake` and `ninja` to trigger a build:
 
@@ -201,7 +181,7 @@ Install the following components:
 - [Python 3.7](https://www.python.org/ftp/python/3.7.0/python-3.7.0.exe)
 - [CMake 3.14 or later](https://github.com/Kitware/CMake/releases/download/v3.14.7/cmake-3.14.7-win64-x64.msi)
 
-The latest Windows SDK can also by installed by opening Visual Studio and selecting _Get Tools and
+The latest Windows SDK can also be installed by opening Visual Studio and selecting _Get Tools and
 Features..._ under the _Tools_ menu.
 
 By default, Windows treats the file system as case insensitive. Please do not enable case
@@ -317,11 +297,11 @@ Alternatively you can build the AAR from the command line by executing the follo
 `android/` directory:
 
 ```
-$ ./gradlew -Pfilament_dist_dir=../../out/android-release/filament assembleRelease
+$ ./gradlew -Pcom.google.android.filament.dist-dir=../../out/android-release/filament assembleRelease
 ```
 
-The `-Pfilament_dist_dir` can be used to specify a different installation directory (it must match
-the CMake install prefix used in the previous steps).
+The `-Pcom.google.android.filament.dist-dir` can be used to specify a different installation
+directory (it must match the CMake install prefix used in the previous steps).
 
 #### Using Filament's AAR
 
@@ -375,7 +355,7 @@ same version that our continuous builds use.
 
 ```
 cd <your chosen parent folder for the emscripten SDK>
-curl -L https://github.com/emscripten-core/emsdk/archive/1.39.19.zip > emsdk.zip
+curl -L https://github.com/emscripten-core/emsdk/archive/refs/tags/3.1.15.zip > emsdk.zip
 unzip emsdk.zip ; mv emsdk-* emsdk ; cd emsdk
 python ./emsdk.py install latest
 python ./emsdk.py activate latest
@@ -391,13 +371,11 @@ export EMSDK=<your chosen home for the emscripten SDK>
 
 The EMSDK variable is required so that the build script can find the Emscripten SDK. The build
 creates a `samples` folder that can be used as the root of a simple static web server. Note that you
-cannot open the HTML directly from the filesystem due to CORS. One way to deal with this is to
-use Python to create a quick localhost server:
+cannot open the HTML directly from the filesystem due to CORS. We recommend using the emrun tool
+to create a quick localhost server:
 
 ```
-cd out/cmake-webgl-release/web/samples
-python3 -m http.server     # Python 3
-python -m SimpleHTTPServer # Python 2.7
+emrun out/cmake-webgl-release/web/samples --no_browser --port 8000
 ```
 
 You can then open http://localhost:8000/suzanne.html in your web browser.
@@ -422,12 +400,13 @@ filamesh ./assets/models/monkey/monkey.obj monkey.filamesh
 ```
 
 Most samples accept an IBL that must be generated using the `cmgen` tool (`./tools/filamesh/cmgen`
-in your build directory). These sample apps expect a path to a directory containing the '.rgb32f'
-files for the IBL (which are PNGs containing `R11F_G11F_B10F` data). To generate an IBL simply use
-this command:
+in your build directory). These sample apps expect a path to a directory containing the `.rgb32f`
+files for the IBL (which are PNGs containing `R11F_G11F_B10F` data) or a path to a directory
+containing two `.ktx` files (one for the IBL itself, one for the skybox). To generate an IBL
+simply use this command:
 
 ```
-cmgen -x ./ibls/ my_ibl.exr
+cmgen -f ktx -x ./ibls/ my_ibl.exr
 ```
 
 The source environment map can be a PNG (8 or 16 bit), a PSD (16 or 32 bit), an HDR or an OpenEXR

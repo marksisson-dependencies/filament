@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef TNT_FILAMENT_DRIVER_VULKANFBOCACHE_H
-#define TNT_FILAMENT_DRIVER_VULKANFBOCACHE_H
+#ifndef TNT_FILAMENT_BACKEND_VULKANFBOCACHE_H
+#define TNT_FILAMENT_BACKEND_VULKANFBOCACHE_H
 
 #include "VulkanContext.h"
 
@@ -25,8 +25,7 @@
 
 #include <tsl/robin_map.h>
 
-namespace filament {
-namespace backend {
+namespace filament::backend {
 
 // Simple manager for VkFramebuffer and VkRenderPass objects.
 //
@@ -38,26 +37,43 @@ class VulkanFboCache {
 public:
     // RenderPassKey is a small POD representing the immutable state that is used to construct
     // a VkRenderPass. It is hashed and used as a lookup key.
+    // TODO: This struct can be reduced in size by using a subset of formats instead of VkFormat
+    //       and removing the "finalDepthLayout" field.
     struct alignas(8) RenderPassKey {
-        VkImageLayout colorLayout[MRT::TARGET_COUNT];  // 16 bytes
-        VkFormat colorFormat[MRT::TARGET_COUNT]; // 16 bytes
-        VkImageLayout depthLayout;  // 4 bytes
+        // For each target, we need to know three image layouts: the layout BEFORE the pass, the
+        // layout DURING the pass, and the layout AFTER the pass. Here are the rules:
+        // - For depth, we explicitly specify all three layouts.
+        // - Color targets have their initial image layout specified with a bitmask.
+        // - For each color target, the pre-existing layout is either UNDEFINED (0) or GENERAL (1).
+        // - The render pass and final images layout for color buffers is always GENERAL.
+        uint8_t initialColorLayoutMask;
+
+        // Note that if VulkanLayout grows beyond 16, we'd need to up this.
+        VulkanLayout initialDepthLayout : 4;
+        VulkanLayout renderPassDepthLayout : 4;
+        VulkanLayout finalDepthLayout : 4;
+        uint8_t padding0 : 4;
+        uint8_t padding1;
+
+        VkFormat colorFormat[MRT::MAX_SUPPORTED_RENDER_TARGET_COUNT]; // 32 bytes
         VkFormat depthFormat; // 4 bytes
-        TargetBufferFlags clear : 8; // 1 byte
-        TargetBufferFlags discardStart : 8; // 1 byte
-        TargetBufferFlags discardEnd : 8; // 1 byte
+        TargetBufferFlags clear; // 4 bytes
+        TargetBufferFlags discardStart; // 4 bytes
+        TargetBufferFlags discardEnd; // 4 bytes
         uint8_t samples; // 1 byte
         uint8_t needsResolveMask; // 1 byte
-        uint8_t subpassMask; // 1 bytes
-        uint16_t padding; // 2 bytes
+        uint8_t subpassMask; // 1 byte
+        bool padding2; // 1 byte
     };
     struct RenderPassVal {
         VkRenderPass handle;
         uint32_t timestamp;
     };
-    static_assert(sizeof(TargetBufferFlags) == 1, "TargetBufferFlags has unexpected size.");
+    static_assert(0 == MRT::MAX_SUPPORTED_RENDER_TARGET_COUNT % 8);
+    static_assert(sizeof(RenderPassKey::initialColorLayoutMask) == MRT::MAX_SUPPORTED_RENDER_TARGET_COUNT / 8);
+    static_assert(sizeof(TargetBufferFlags) == 4, "TargetBufferFlags has unexpected size.");
     static_assert(sizeof(VkFormat) == 4, "VkFormat has unexpected size.");
-    static_assert(sizeof(RenderPassKey) == 48, "RenderPassKey has unexpected size.");
+    static_assert(sizeof(RenderPassKey) == 56, "RenderPassKey has unexpected size.");
     using RenderPassHash = utils::hash::MurmurHashFn<RenderPassKey>;
     struct RenderPassEq {
         bool operator()(const RenderPassKey& k1, const RenderPassKey& k2) const;
@@ -72,8 +88,8 @@ public:
         uint16_t height; // 2 bytes
         uint16_t layers; // 2 bytes
         uint16_t samples; // 2 bytes
-        VkImageView color[MRT::TARGET_COUNT]; // 32 bytes
-        VkImageView resolve[MRT::TARGET_COUNT]; // 32 bytes
+        VkImageView color[MRT::MAX_SUPPORTED_RENDER_TARGET_COUNT]; // 64 bytes
+        VkImageView resolve[MRT::MAX_SUPPORTED_RENDER_TARGET_COUNT]; // 64 bytes
         VkImageView depth; // 8 bytes
     };
     struct FboVal {
@@ -82,14 +98,15 @@ public:
     };
     static_assert(sizeof(VkRenderPass) == 8, "VkRenderPass has unexpected size.");
     static_assert(sizeof(VkImageView) == 8, "VkImageView has unexpected size.");
-    static_assert(sizeof(FboKey) == 88, "FboKey has unexpected size.");
+    static_assert(sizeof(FboKey) == 152, "FboKey has unexpected size.");
     using FboKeyHashFn = utils::hash::MurmurHashFn<FboKey>;
     struct FboKeyEqualFn {
         bool operator()(const FboKey& k1, const FboKey& k2) const;
     };
 
-    explicit VulkanFboCache(VulkanContext&);
     ~VulkanFboCache();
+
+    void initialize(VkDevice device) noexcept;
 
     // Retrieves or creates a VkFramebuffer handle.
     VkFramebuffer getFramebuffer(FboKey config) noexcept;
@@ -104,20 +121,13 @@ public:
     void reset() noexcept;
 
 private:
-    VulkanContext& mContext;
+    VkDevice mDevice;
     tsl::robin_map<FboKey, FboVal, FboKeyHashFn, FboKeyEqualFn> mFramebufferCache;
     tsl::robin_map<RenderPassKey, RenderPassVal, RenderPassHash, RenderPassEq> mRenderPassCache;
     tsl::robin_map<VkRenderPass, uint32_t> mRenderPassRefCount;
     uint32_t mCurrentTime = 0;
-
-    // If any VkRenderPass or VkFramebuffer is unused for more than TIME_BEFORE_EVICTION frames, it
-    // is evicted from the cache. Ideally this constant is greater than or equal to the number of
-    // elements in the swap chain. Since we use triple buffering on some platforms, we've chosen an
-    // eviction time of 3.
-    static constexpr uint32_t TIME_BEFORE_EVICTION = 3;
 };
 
-} // namespace filament
-} // namespace backend
+} // namespace filament::backend
 
-#endif // TNT_FILAMENT_DRIVER_VULKANFBOCACHE_H
+#endif // TNT_FILAMENT_BACKEND_VULKANFBOCACHE_H

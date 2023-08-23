@@ -16,10 +16,8 @@
 
 #include <viewer/AutomationEngine.h>
 
-#include <imageio/ImageEncoder.h>
-
-#include <image/ColorTransform.h>
-
+#include <filament/Camera.h>
+#include <filament/Engine.h>
 #include <filament/Renderer.h>
 #include <filament/Viewport.h>
 
@@ -32,7 +30,6 @@
 #include <fstream>
 #include <sstream>
 
-using namespace image;
 using namespace utils;
 
 namespace filament {
@@ -47,15 +44,27 @@ struct ScreenshotState {
     AutomationEngine* engine;
 };
 
-void exportScreenshot(View* view, Renderer* renderer, std::string filename,
+static void convertRGBAtoRGB(void* buffer, uint32_t width, uint32_t height) {
+    uint8_t* writePtr = static_cast<uint8_t*>(buffer);
+    uint8_t const* readPtr = static_cast<uint8_t const*>(buffer);
+    for (uint32_t i = 0, n = width * height; i < n; ++i) {
+        writePtr[0] = readPtr[0];
+        writePtr[1] = readPtr[1];
+        writePtr[2] = readPtr[2];
+        writePtr += 3;
+        readPtr += 4;
+    }
+}
+
+static void exportScreenshot(View* view, Renderer* renderer, std::string filename,
         bool autoclose, AutomationEngine* automationEngine) {
     const Viewport& vp = view->getViewport();
-    const size_t byteCount = vp.width * vp.height * 3;
+    const size_t byteCount = vp.width * vp.height * 4;
 
-    // Create a buffer descriptor that writes the PNG after the data becomes ready on the CPU.
+    // Create a buffer descriptor that writes the PPM after the data becomes ready on the CPU.
     backend::PixelBufferDescriptor buffer(
         new uint8_t[byteCount], byteCount,
-        backend::PixelBufferDescriptor::PixelDataFormat::RGB,
+        backend::PixelBufferDescriptor::PixelDataFormat::RGBA,
         backend::PixelBufferDescriptor::PixelDataType::UBYTE,
         [](void* buffer, size_t size, void* user) {
             ScreenshotState* state = static_cast<ScreenshotState*>(user);
@@ -65,12 +74,15 @@ void exportScreenshot(View* view, Renderer* renderer, std::string filename,
                 return;
             }
             const Viewport& vp = state->view->getViewport();
-            LinearImage image(toLinear<uint8_t>(vp.width, vp.height, vp.width * 3,
-                    static_cast<uint8_t*>(buffer)));
+
+            // ReadPixels on Metal only supports RGBA, but the PPM format only supports RGB.
+            // So, manually perform a quick transformation here.
+            convertRGBAtoRGB(buffer, vp.width, vp.height);
+
             Path out(state->filename);
-            std::ofstream outputStream(out, std::ios::binary | std::ios::trunc);
-            ImageEncoder::encode(outputStream, ImageEncoder::Format::PNG, image, "",
-                    state->filename);
+            std::ofstream ppmStream(out);
+            ppmStream << "P6 " << vp.width << " " << vp.height << " " << 255 << std::endl;
+            ppmStream.write(static_cast<char*>(buffer), vp.width * vp.height * 3);
             delete[] static_cast<uint8_t*>(buffer);
             if (state->autoclose) {
                 state->engine->requestClose();
@@ -83,6 +95,38 @@ void exportScreenshot(View* view, Renderer* renderer, std::string filename,
     // Invoke readPixels asynchronously.
     renderer->readPixels((uint32_t) vp.left, (uint32_t) vp.bottom, vp.width, vp.height,
             std::move(buffer));
+}
+
+AutomationEngine* AutomationEngine::createFromJSON(const char* jsonSpec, size_t size) {
+    AutomationSpec* spec = AutomationSpec::generate(jsonSpec, size);
+    if (!spec) {
+        return nullptr;
+    }
+    Settings* settings = new Settings();
+    AutomationEngine* result = new AutomationEngine(spec, settings);
+    result->mOwnsSettings = true;
+    return result;
+}
+
+AutomationEngine* AutomationEngine::createDefault() {
+    AutomationSpec* spec = AutomationSpec::generateDefaultTestCases();
+    if (!spec) {
+        return nullptr;
+    }
+    Settings* settings = new Settings();
+    AutomationEngine* result = new AutomationEngine(spec, settings);
+    result->mOwnsSettings = true;
+    return result;
+}
+
+AutomationEngine::~AutomationEngine() {
+    if (mColorGrading) {
+        mColorGradingEngine->destroy(mColorGrading);
+    }
+    if (mOwnsSettings) {
+        delete mSpec;
+        delete mSettings;
+    }
 }
 
 void AutomationEngine::startRunning() {
@@ -100,7 +144,8 @@ void AutomationEngine::terminate() {
 }
 
 void AutomationEngine::exportSettings(const Settings& settings, const char* filename) {
-    std::string contents = writeJson(settings);
+    JsonSerializer serializer;
+    std::string contents = serializer.writeJson(settings);
     std::ofstream out(filename);
     if (!out) {
         gStatus = "Failed to export settings file.";
@@ -109,15 +154,57 @@ void AutomationEngine::exportSettings(const Settings& settings, const char* file
     gStatus = "Exported to '" + std::string(filename) + "' in the current folder.";
 }
 
-void AutomationEngine::tick(View* view, MaterialInstance* const* materials, size_t materialCount,
-        Renderer* renderer, float deltaTime) {
-    const auto activateTest = [this, view, materials, materialCount]() {
+void AutomationEngine::applySettings(Engine* engine, const char* json, size_t jsonLength,
+        const ViewerContent& content) {
+    JsonSerializer serializer;
+    if (!serializer.readJson(json, jsonLength, mSettings)) {
+        std::string jsonWithTerminator(json, json + jsonLength);
+        slog.e << "Badly formed JSON:\n" << jsonWithTerminator.c_str() << io::endl;
+        return;
+    }
+    viewer::applySettings(engine, mSettings->view, content.view);
+    for (size_t i = 0; i < content.materialCount; i++) {
+        viewer::applySettings(engine, mSettings->material, content.materials[i]);
+    }
+    viewer::applySettings(engine, mSettings->lighting, content.indirectLight, content.sunlight,
+            content.assetLights, content.assetLightCount, content.lightManager, content.scene, content.view);
+    Camera* camera = &content.view->getCamera();
+    Skybox* skybox = content.scene->getSkybox();
+    viewer::applySettings(engine, mSettings->viewer, camera, skybox, content.renderer);
+}
+
+ColorGrading* AutomationEngine::getColorGrading(Engine* engine) {
+    if (mSettings->view.colorGrading != mColorGradingSettings) {
+        mColorGradingSettings = mSettings->view.colorGrading;
+        if (mColorGrading) {
+            mColorGradingEngine->destroy(mColorGrading);
+        }
+        mColorGrading = createColorGrading(mColorGradingSettings, engine);
+        mColorGradingEngine = engine;
+    }
+    return mColorGrading;
+}
+
+ViewerOptions AutomationEngine::getViewerOptions() const {
+    ViewerOptions options = mSettings->viewer;
+    const auto dofOptions = mSettings->view.dof;
+    if (dofOptions.enabled) {
+        options.cameraFocalLength = Camera::computeEffectiveFocalLength(
+                options.cameraFocalLength / 1000.0,
+                std::max(0.1f, options.cameraFocusDistance)) * 1000.0;
+
+    }
+    return mSettings->viewer;
+}
+
+void AutomationEngine::tick(Engine* engine, const ViewerContent& content, float deltaTime) {
+    const auto activateTest = [this, engine, content]() {
         mElapsedTime = 0;
         mElapsedFrames = 0;
         mSpec->get(mCurrentTest, mSettings);
-        applySettings(mSettings->view, view);
-        for (size_t i = 0; i < materialCount; i++) {
-            applySettings(mSettings->material, materials[i]);
+        viewer::applySettings(engine, mSettings->view, content.view);
+        for (size_t i = 0; i < content.materialCount; i++) {
+            viewer::applySettings(engine, mSettings->material, content.materials[i]);
         }
         if (mOptions.verbose) {
             utils::slog.i << "Running test " << mCurrentTest << utils::io::endl;
@@ -157,7 +244,7 @@ void AutomationEngine::tick(View* view, MaterialInstance* const* materials, size
     }
 
     if (mOptions.exportScreenshots) {
-        exportScreenshot(view, renderer, prefix + ".png", isLastTest, this);
+        exportScreenshot(content.view, content.renderer, prefix + ".ppm", isLastTest, this);
     }
 
     if (isLastTest) {

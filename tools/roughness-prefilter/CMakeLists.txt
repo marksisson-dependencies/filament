@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.19)
 project(roughness-prefilter)
 
 set(TARGET roughness-prefilter)
@@ -16,6 +16,8 @@ set(SRCS src/main.cpp)
 add_executable(${TARGET} ${HDRS} ${SRCS})
 
 target_link_libraries(${TARGET} PRIVATE math utils z image imageio getopt)
+
+set_target_properties(${TARGET} PROPERTIES FOLDER Tools)
 
 # ==================================================================================================
 # Compile options and optimizations

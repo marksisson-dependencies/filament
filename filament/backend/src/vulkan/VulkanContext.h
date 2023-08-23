@@ -14,169 +14,128 @@
  * limitations under the License.
  */
 
-#ifndef TNT_FILAMENT_DRIVER_VULKANCONTEXT_H
-#define TNT_FILAMENT_DRIVER_VULKANCONTEXT_H
+#ifndef TNT_FILAMENT_BACKEND_VULKANCONTEXT_H
+#define TNT_FILAMENT_BACKEND_VULKANCONTEXT_H
 
-#include "VulkanBinder.h"
-#include "VulkanDisposer.h"
+#include "VulkanConstants.h"
+#include "VulkanImageUtility.h"
+#include "VulkanPipelineCache.h"
 
-#include <backend/DriverEnums.h>
-
-#include <bluevk/BlueVK.h>
-
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wundef"
-#include "vk_mem_alloc.h"
-#pragma clang diagnostic pop
-
-#include <utils/Condition.h>
 #include <utils/Mutex.h>
+#include <utils/Slice.h>
+#include <utils/bitset.h>
 
-#include <atomic>
 #include <memory>
-#include <vector>
 
-namespace filament {
-namespace backend {
+VK_DEFINE_HANDLE(VmaAllocator)
+VK_DEFINE_HANDLE(VmaPool)
 
-// All vkCreate* functions take an optional allocator. For now we select the default allocator by
-// passing in a null pointer, and we highlight the argument by using the VKALLOC constant.
-constexpr VkAllocationCallbacks* VKALLOC = nullptr;
+namespace filament::backend {
 
-// At the time of this writing, our copy of MoltenVK supports Vulkan 1.0 only.
-constexpr static const int VK_REQUIRED_VERSION_MAJOR = 1;
-constexpr static const int VK_REQUIRED_VERSION_MINOR = 0;
-
-struct VulkanSurfaceContext;
+struct VulkanRenderTarget;
+struct VulkanSwapChain;
 struct VulkanTexture;
+class VulkanStagePool;
+struct VulkanTimerQuery;
+struct VulkanCommandBuffer;
 
-// This wrapper exists so that we can use shared_ptr to implement shared ownership for low-level
-// Vulkan fences.
-struct VulkanCmdFence {
-    VulkanCmdFence(VkDevice device, bool signaled = false);
-    ~VulkanCmdFence();
-    const VkDevice device;
-    VkFence fence;
-    utils::Condition condition;
-    utils::Mutex mutex;
-    std::atomic<VkResult> status;
-    bool swapChainDestroyed = false;
-
-    // TODO: for non-work buffers the following field indicates if the fence has EVER been
-    // submitted, which is a bit misleading or un-useful. This needs to be refactored.
-    bool submitted = false;
+struct VulkanAttachment {
+    VulkanTexture* texture;
+    uint8_t level = 0;
+    uint16_t layer = 0;
+    VkImage getImage() const;
+    VkFormat getFormat() const;
+    VulkanLayout getLayout() const;
+    VkExtent2D getExtent2D() const;
+    VkImageView getImageView(VkImageAspectFlags aspect);
+    // TODO: maybe embed aspect into the attachment or texture itself.
+    VkImageSubresourceRange getSubresourceRange(VkImageAspectFlags aspect) const;
 };
 
- // The submission fence has shared ownership semantics because it is potentially wrapped by a
-// DriverApi fence object and should not be destroyed until both the DriverAPI object is freed and
-// we're done waiting on the most recent submission of the given command buffer.
-struct VulkanCommandBuffer {
-    VkCommandBuffer cmdbuffer;
-    std::shared_ptr<VulkanCmdFence> fence;
-    VulkanDisposer::Set resources;
-};
+class VulkanTimestamps {
+public:
+    using QueryResult = std::array<uint64_t, 4>;
 
-struct VulkanTimestamps {
-    VkQueryPool pool;
-    utils::bitset32 used;
-    utils::Mutex mutex;
+    VulkanTimestamps(VkDevice device);
+    ~VulkanTimestamps();
+
+    // Not copy-able.
+    VulkanTimestamps(VulkanTimestamps const&) = delete;
+    VulkanTimestamps& operator=(VulkanTimestamps const&) = delete;
+
+    std::tuple<uint32_t, uint32_t> getNextQuery();
+    void clearQuery(uint32_t queryIndex);
+
+    void beginQuery(VulkanCommandBuffer const* commands, VulkanTimerQuery* query);
+    void endQuery(VulkanCommandBuffer const* commands, VulkanTimerQuery const* query);
+    QueryResult getResult(VulkanTimerQuery const* query);
+
+private:
+    VkDevice mDevice;
+    VkQueryPool mPool;
+    utils::bitset32 mUsed;
+    utils::Mutex mMutex;
 };
 
 struct VulkanRenderPass {
+    VulkanRenderTarget* renderTarget;
     VkRenderPass renderPass;
-    uint32_t subpassMask;
+    RenderPassParams params;
     int currentSubpass;
 };
 
-// For now we only support a single-device, single-instance scenario. Our concept of "context" is a
-// bundle of state containing the Device, the Instance, and various globally-useful Vulkan objects.
+// This is a collection of immutable data about the vulkan context. This actual handles to the
+// context are stored in VulkanPlatform.
 struct VulkanContext {
-    VkInstance instance;
-    VkPhysicalDevice physicalDevice;
-    VkPhysicalDeviceProperties physicalDeviceProperties;
-    VkPhysicalDeviceFeatures physicalDeviceFeatures;
-    VkPhysicalDeviceMemoryProperties memoryProperties;
-    VkDevice device;
-    VkCommandPool commandPool;
-    VulkanTimestamps timestamps;
-    uint32_t graphicsQueueFamilyIndex;
-    VkQueue graphicsQueue;
-    bool debugMarkersSupported;
-    bool debugUtilsSupported;
-    VulkanBinder::RasterState rasterState;
-    VulkanCommandBuffer* currentCommands;
-    VulkanSurfaceContext* currentSurface;
-    VulkanRenderPass currentRenderPass;
-    VkViewport viewport;
-    VkFormat finalDepthFormat;
-    VmaAllocator allocator;
+public:
+    inline uint32_t selectMemoryType(uint32_t flags, VkFlags reqs) const {
+        for (uint32_t i = 0; i < VK_MAX_MEMORY_TYPES; i++) {
+            if (flags & 1) {
+                if ((mMemoryProperties.memoryTypes[i].propertyFlags & reqs) == reqs) {
+                    return i;
+                }
+            }
+            flags >>= 1;
+        }
+        return (uint32_t) VK_MAX_MEMORY_TYPES;
+    }
 
-    // The work context is used for activities unrelated to the swap chain or draw calls, such as
-    // uploads, blits, and transitions.
-    VulkanCommandBuffer work;
+    inline VkFormat getDepthFormat() const {
+        return mDepthFormat;
+    }
+
+    inline VkPhysicalDeviceLimits const& getPhysicalDeviceLimits() const noexcept {
+        return mPhysicalDeviceProperties.limits;
+    }
+
+    inline uint32_t getPhysicalDeviceVendorId() const noexcept {
+        return mPhysicalDeviceProperties.vendorID;
+    }
+
+    inline bool isImageCubeArraySupported() const noexcept {
+        return mPhysicalDeviceFeatures.imageCubeArray;
+    }
+
+    inline bool isDebugMarkersSupported() const noexcept {
+        return mDebugMarkersSupported;
+    }
+    inline bool isDebugUtilsSupported() const noexcept {
+        return mDebugUtilsSupported;
+    }
+
+private:
+    VkPhysicalDeviceMemoryProperties mMemoryProperties = {};
+    VkPhysicalDeviceProperties mPhysicalDeviceProperties = {};
+    VkPhysicalDeviceFeatures mPhysicalDeviceFeatures = {};
+    bool mDebugMarkersSupported = false;
+    bool mDebugUtilsSupported = false;
+
+    VkFormat mDepthFormat;
+
+    // For convenience so that VulkanPlatform can initialize the private fields.
+    friend class VulkanPlatform;
 };
 
-struct VulkanAttachment {
-    VkFormat format;
-    VkImage image;
-    VkImageView view;
-    VkDeviceMemory memory;
-    VulkanTexture* texture = nullptr;
-    VkImageLayout layout;
-    uint8_t level;
-    uint16_t layer;
-};
+}// namespace filament::backend
 
-// The SwapContext is the set of objects that gets "swapped" at each beginFrame().
-// Typically there are only 2 or 3 instances of the SwapContext per SwapChain.
-struct SwapContext {
-    VulkanAttachment attachment;
-    VulkanCommandBuffer commands;
-    bool invalid;
-};
-
-// The SurfaceContext stores various state (including the swap chain) that we tightly associate
-// with VkSurfaceKHR, which is basically one-to-one with a platform-specific window.
-struct VulkanSurfaceContext {
-    VkSurfaceKHR surface;
-    VkSwapchainKHR swapchain;
-    VkSurfaceCapabilitiesKHR surfaceCapabilities;
-    VkSurfaceFormatKHR surfaceFormat;
-    VkExtent2D clientSize;
-    std::vector<VkSurfaceFormatKHR> surfaceFormats;
-    VkQueue presentQueue;
-    VkQueue headlessQueue;
-    std::vector<SwapContext> swapContexts;
-    uint32_t currentSwapIndex;
-    VkSemaphore imageAvailable;
-    VkSemaphore renderingFinished;
-    VulkanAttachment depth;
-    bool suboptimal;
-};
-
-void selectPhysicalDevice(VulkanContext& context);
-void createLogicalDevice(VulkanContext& context);
-void getPresentationQueue(VulkanContext& context, VulkanSurfaceContext& sc);
-void getHeadlessQueue(VulkanContext& context, VulkanSurfaceContext& sc);
-
-void createSwapChain(VulkanContext& context, VulkanSurfaceContext& sc);
-void destroySwapChain(VulkanContext& context, VulkanSurfaceContext& sc, VulkanDisposer& disposer);
-void makeSwapChainPresentable(VulkanContext& context);
-
-uint32_t selectMemoryType(VulkanContext& context, uint32_t flags, VkFlags reqs);
-SwapContext& getSwapContext(VulkanContext& context);
-void waitForIdle(VulkanContext& context);
-bool acquireSwapCommandBuffer(VulkanContext& context);
-void releaseCommandBuffer(VulkanContext& context);
-void flushCommandBuffer(VulkanContext& context);
-VkFormat findSupportedFormat(VulkanContext& context, const std::vector<VkFormat>& candidates,
-        VkImageTiling tiling, VkFormatFeatureFlags features);
-VkCommandBuffer acquireWorkCommandBuffer(VulkanContext& context);
-void flushWorkCommandBuffer(VulkanContext& context);
-void createFinalDepthBuffer(VulkanContext& context, VulkanSurfaceContext& sc, VkFormat depthFormat);
-VkImageLayout getTextureLayout(TextureUsage usage);
-
-} // namespace filament
-} // namespace backend
-
-#endif // TNT_FILAMENT_DRIVER_VULKANCONTEXT_H
+#endif// TNT_FILAMENT_BACKEND_VULKANCONTEXT_H

@@ -21,7 +21,7 @@
 
 #include <imgui.h>
 
-#include <filamat/MaterialBuilder.h>
+#include <filament/Camera.h>
 #include <filament/Fence.h>
 #include <filament/IndexBuffer.h>
 #include <filament/Material.h>
@@ -32,20 +32,32 @@
 #include <filament/TextureSampler.h>
 #include <filament/TransformManager.h>
 #include <filament/VertexBuffer.h>
+
 #include <utils/EntityManager.h>
 
 using namespace filament::math;
 using namespace filament;
 using namespace utils;
 
+using MinFilter = TextureSampler::MinFilter;
+using MagFilter = TextureSampler::MagFilter;
+
 namespace filagui {
 
 #include "generated/resources/filagui_resources.h"
 
-ImGuiHelper::ImGuiHelper(Engine* engine, filament::View* view, const Path& fontPath) :
-        mEngine(engine), mView(view), mScene(engine->createScene()),
-        mImGuiContext(ImGui::CreateContext()) {
+ImGuiHelper::ImGuiHelper(Engine* engine, filament::View* view, const Path& fontPath,
+        ImGuiContext *imGuiContext)
+        : mEngine(engine), mView(view), mScene(engine->createScene()),
+        mImGuiContext(imGuiContext ? imGuiContext : ImGui::CreateContext()) {
     ImGuiIO& io = ImGui::GetIO();
+    mSettingsPath.setPath(
+            Path::getUserSettingsDirectory() +
+            Path(std::string(".") + Path::getCurrentExecutable().getNameWithoutExtension()) +
+            Path("imgui_settings.ini")
+    );
+    mSettingsPath.getParent().mkdirRecursive();
+    io.IniFilename = mSettingsPath.c_str();
 
     // Create a simple alpha-blended 2D blitting material.
     mMaterial = Material::Builder()
@@ -54,10 +66,22 @@ ImGuiHelper::ImGuiHelper(Engine* engine, filament::View* view, const Path& fontP
 
     // If the given font path is invalid, ImGui will silently fall back to proggy, which is a
     // tiny "pixel art" texture that is compiled into the library.
-    if (!fontPath.isEmpty()) {
+    if (fontPath.isFile()) {
         io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f);
-        createAtlasTexture(engine);
     }
+    createAtlasTexture(engine);
+
+    // For proggy, switch to NEAREST for pixel-perfect text.
+    if (!fontPath.isFile() && !imGuiContext) {
+        mSampler = TextureSampler(MinFilter::NEAREST, MagFilter::NEAREST);
+        mMaterial->setDefaultParameter("albedo", mTexture, mSampler);
+    }
+
+    utils::EntityManager& em = utils::EntityManager::get();
+    mCameraEntity = em.create();
+    mCamera = mEngine->createCamera(mCameraEntity);
+
+    view->setCamera(mCamera);
 
     view->setPostProcessingEnabled(false);
     view->setBlendMode(View::BlendMode::TRANSLUCENT);
@@ -66,7 +90,6 @@ ImGuiHelper::ImGuiHelper(Engine* engine, filament::View* view, const Path& fontP
     // Attach a scene for our one and only Renderable.
     view->setScene(mScene);
 
-    EntityManager& em = utils::EntityManager::get();
     mRenderable = em.create();
     mScene->addEntity(mRenderable);
 
@@ -93,13 +116,15 @@ void ImGuiHelper::createAtlasTexture(Engine* engine) {
             .build(*engine);
     mTexture->setImage(*engine, 0, std::move(pb));
 
-    TextureSampler sampler(TextureSampler::MinFilter::LINEAR, TextureSampler::MagFilter::LINEAR);
-    mMaterial->setDefaultParameter("albedo", mTexture, sampler);
+    mSampler = TextureSampler(MinFilter::LINEAR, MagFilter::LINEAR);
+    mMaterial->setDefaultParameter("albedo", mTexture, mSampler);
 }
 
 ImGuiHelper::~ImGuiHelper() {
     mEngine->destroy(mScene);
     mEngine->destroy(mRenderable);
+    mEngine->destroyCameraComponent(mCameraEntity);
+
     for (auto& mi : mMaterialInstances) {
         mEngine->destroy(mi);
     }
@@ -111,16 +136,29 @@ ImGuiHelper::~ImGuiHelper() {
     for (auto& ib : mIndexBuffers) {
         mEngine->destroy(ib);
     }
+
+    EntityManager& em = utils::EntityManager::get();
+    em.destroy(mRenderable);
+    em.destroy(mCameraEntity);
+
     ImGui::DestroyContext(mImGuiContext);
     mImGuiContext = nullptr;
 }
 
-void ImGuiHelper::setDisplaySize(int width, int height, float scaleX, float scaleY) {
+void ImGuiHelper::setDisplaySize(int width, int height, float scaleX, float scaleY,
+        bool flipVertical) {
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize = ImVec2(width, height);
     io.DisplayFramebufferScale.x = scaleX;
     io.DisplayFramebufferScale.y = scaleY;
-}
+    mFlipVertical = flipVertical;
+    if (flipVertical) {
+        mCamera->setProjection(Camera::Projection::ORTHO, 0.0, double(width),
+                0.0, double(height), 0.0, 1.0);
+    } else {
+        mCamera->setProjection(Camera::Projection::ORTHO, 0.0, double(width),
+                double(height), 0.0, 0.0, 1.0);
+    }}
 
 void ImGuiHelper::render(float timeStepInSeconds, Callback imguiCommands) {
     ImGui::SetCurrentContext(mImGuiContext);
@@ -179,7 +217,6 @@ void ImGuiHelper::processImGuiCommands(ImDrawData* commands, const ImGuiIO& io) 
     int primIndex = 0;
     for (int cmdListIndex = 0; cmdListIndex < commands->CmdListsCount; cmdListIndex++) {
         const ImDrawList* cmds = commands->CmdLists[cmdListIndex];
-        size_t indexOffset = 0;
         populateVertexData(bufferIndex,
                 cmds->VtxBuffer.Size * sizeof(ImDrawVert), cmds->VtxBuffer.Data,
                 cmds->IdxBuffer.Size * sizeof(ImDrawIdx), cmds->IdxBuffer.Data);
@@ -188,22 +225,26 @@ void ImGuiHelper::processImGuiCommands(ImDrawData* commands, const ImGuiIO& io) 
                 pcmd.UserCallback(cmds, &pcmd);
             } else {
                 MaterialInstance* materialInstance = mMaterialInstances[primIndex];
-                materialInstance->setScissor( pcmd.ClipRect.x, fbheight - pcmd.ClipRect.w,
+                materialInstance->setScissor(
+                        pcmd.ClipRect.x,
+                        mFlipVertical ? pcmd.ClipRect.y :  (fbheight - pcmd.ClipRect.w),
                         (uint16_t) (pcmd.ClipRect.z - pcmd.ClipRect.x),
                         (uint16_t) (pcmd.ClipRect.w - pcmd.ClipRect.y));
                 if (pcmd.TextureId) {
-                    TextureSampler sampler(TextureSampler::MinFilter::LINEAR, TextureSampler::MagFilter::LINEAR);
-                    materialInstance->setParameter("albedo", (Texture const*)pcmd.TextureId, sampler);
+                    TextureSampler sampler(MinFilter::LINEAR, MagFilter::LINEAR);
+                    materialInstance->setParameter("albedo",
+                            (Texture const*)pcmd.TextureId, sampler);
+                } else {
+                    materialInstance->setParameter("albedo", mTexture, mSampler);
                 }
                 rbuilder
                         .geometry(primIndex, RenderableManager::PrimitiveType::TRIANGLES,
                                 mVertexBuffers[bufferIndex], mIndexBuffers[bufferIndex],
-                                indexOffset, pcmd.ElemCount)
+                                pcmd.IdxOffset, pcmd.ElemCount)
                         .blendOrder(primIndex, primIndex)
                         .material(primIndex, materialInstance);
                 primIndex++;
             }
-            indexOffset += pcmd.ElemCount;
         }
         bufferIndex++;
     }

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.19)
 project(benchmark)
 
 set(OUR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..)
@@ -40,8 +40,11 @@ endif()
 
 # specify where the public headers of this library are
 target_include_directories(${TARGET} PUBLIC ${PUBLIC_HDR_DIR})
+set_target_properties(${TARGET} PROPERTIES FOLDER ThirdParty)
 
 # Benchmark main library
 add_library(${TARGET}_main ${SRC_DIR}/benchmark_main.cc)
 target_include_directories(${TARGET} PUBLIC ${PUBLIC_HDR_DIR})
+set_target_properties(${TARGET} PROPERTIES FOLDER ThirdParty)
 target_link_libraries(${TARGET}_main benchmark)
+set_target_properties(${TARGET}_main PROPERTIES FOLDER ThirdParty)

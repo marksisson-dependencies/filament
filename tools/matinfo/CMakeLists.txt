@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.19)
 project(matinfo)
 
 set(TARGET matinfo)
@@ -19,6 +19,8 @@ target_link_libraries(${TARGET} matdbg filaflat backend_headers utils getopt SPI
 # following variable refers to the project name that we define in glslang/tnt, and the trailing ".."
 # in the path allows us to do #include <SPIRV/disassemble.h>
 target_include_directories(${TARGET} PRIVATE ${../glslang_SOURCE_DIR}/..)
+
+set_target_properties(${TARGET} PROPERTIES FOLDER Tools)
 
 # =================================================================================================
 # Licenses

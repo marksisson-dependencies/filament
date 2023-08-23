@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <filament/BufferObject.h>
 #include <filament/Camera.h>
 #include <filament/ColorGrading.h>
 #include <filament/Color.h>
@@ -23,8 +24,11 @@
 #include <filament/RenderableManager.h>
 #include <filament/RenderTarget.h>
 #include <filament/Texture.h>
+#include <filament/TextureSampler.h>
 #include <filament/VertexBuffer.h>
 #include <filament/View.h>
+
+#include <ktxreader/Ktx2Reader.h>
 
 #include <emscripten.h>
 #include <emscripten/bind.h>
@@ -69,6 +73,9 @@ enum_<VertexAttribute>("VertexAttribute")
     .value("MORPH_TANGENTS_2", MORPH_TANGENTS_2)
     .value("MORPH_TANGENTS_3", MORPH_TANGENTS_3);
 
+enum_<BufferObject::BindingType>("BufferObject$BindingType")
+    .value("VERTEX", BufferObject::BindingType::VERTEX);
+
 enum_<VertexBuffer::AttributeType>("VertexBuffer$AttributeType")
     .value("BYTE", VertexBuffer::AttributeType::BYTE)
     .value("BYTE2", VertexBuffer::AttributeType::BYTE2)
@@ -111,30 +118,13 @@ enum_<LightManager::Type>("LightManager$Type")
 enum_<RenderableManager::PrimitiveType>("RenderableManager$PrimitiveType")
     .value("POINTS", RenderableManager::PrimitiveType::POINTS)
     .value("LINES", RenderableManager::PrimitiveType::LINES)
+    .value("LINE_STRIP", RenderableManager::PrimitiveType::LINE_STRIP)
     .value("TRIANGLES", RenderableManager::PrimitiveType::TRIANGLES)
-    .value("NONE", RenderableManager::PrimitiveType::NONE);
-
-enum_<View::QualityLevel>("View$QualityLevel")
-    .value("LOW", View::QualityLevel::LOW)
-    .value("MEDIUM", View::QualityLevel::MEDIUM)
-    .value("HIGH", View::QualityLevel::HIGH)
-    .value("ULTRA", View::QualityLevel::ULTRA);
+    .value("TRIANGLE_STRIP", RenderableManager::PrimitiveType::TRIANGLE_STRIP);
 
 enum_<View::AmbientOcclusion>("View$AmbientOcclusion")
     .value("NONE", View::AmbientOcclusion::NONE)
     .value("SSAO", View::AmbientOcclusion::SSAO);
-
-enum_<View::BlendMode>("View$BlendMode")
-    .value("OPAQUE", View::BlendMode::OPAQUE)
-    .value("TRANSLUCENT", View::BlendMode::TRANSLUCENT);
-
-enum_<View::BloomOptions::BlendMode>("View$BloomOptions$BlendMode")
-    .value("ADD", View::BloomOptions::BlendMode::ADD)
-    .value("INTERPOLATE", View::BloomOptions::BlendMode::INTERPOLATE);
-
-enum_<View::AntiAliasing>("View$AntiAliasing")
-    .value("NONE", View::AntiAliasing::NONE)
-    .value("FXAA", View::AntiAliasing::FXAA);
 
 enum_<Camera::Fov>("Camera$Fov")
     .value("VERTICAL", Camera::Fov::VERTICAL)
@@ -155,9 +145,11 @@ enum_<ColorGrading::ToneMapping>("ColorGrading$ToneMapping")
     .value("ACES_LEGACY", ColorGrading::ToneMapping::ACES_LEGACY)
     .value("ACES", ColorGrading::ToneMapping::ACES)
     .value("FILMIC", ColorGrading::ToneMapping::FILMIC)
-    .value("UCHIMURA", ColorGrading::ToneMapping::UCHIMURA)
-    .value("REINHARD", ColorGrading::ToneMapping::REINHARD)
     .value("DISPLAY_RANGE", ColorGrading::ToneMapping::DISPLAY_RANGE);
+
+enum_<ColorGrading::LutFormat>("ColorGrading$LutFormat")
+    .value("INTEGER", ColorGrading::LutFormat::INTEGER)
+    .value("FLOAT", ColorGrading::LutFormat::FLOAT);
 
 enum_<Frustum::Plane>("Frustum$Plane")
     .value("LEFT", Frustum::Plane::LEFT)
@@ -242,6 +234,10 @@ enum_<Texture::InternalFormat>("Texture$InternalFormat") // aka backend::Texture
     .value("DXT1_RGBA", Texture::InternalFormat::DXT1_RGBA)
     .value("DXT3_RGBA", Texture::InternalFormat::DXT3_RGBA)
     .value("DXT5_RGBA", Texture::InternalFormat::DXT5_RGBA)
+    .value("DXT1_SRGB", Texture::InternalFormat::DXT1_SRGB)
+    .value("DXT1_SRGBA", Texture::InternalFormat::DXT1_SRGBA)
+    .value("DXT3_SRGBA", Texture::InternalFormat::DXT3_SRGBA)
+    .value("DXT5_SRGBA", Texture::InternalFormat::DXT5_SRGBA)
     .value("RGBA_ASTC_4x4", Texture::InternalFormat::RGBA_ASTC_4x4)
     .value("RGBA_ASTC_5x4", Texture::InternalFormat::RGBA_ASTC_5x4)
     .value("RGBA_ASTC_5x5", Texture::InternalFormat::RGBA_ASTC_5x5)
@@ -289,6 +285,10 @@ enum_<Texture::CubemapFace>("Texture$CubemapFace") // aka backend::TextureCubema
     .value("NEGATIVE_Z", Texture::CubemapFace::NEGATIVE_Z);
 
 enum_<RenderTarget::AttachmentPoint>("RenderTarget$AttachmentPoint")
+    .value("COLOR0", RenderTarget::AttachmentPoint::COLOR0)
+    .value("COLOR1", RenderTarget::AttachmentPoint::COLOR1)
+    .value("COLOR2", RenderTarget::AttachmentPoint::COLOR2)
+    .value("COLOR3", RenderTarget::AttachmentPoint::COLOR3)
     .value("COLOR", RenderTarget::AttachmentPoint::COLOR)
     .value("DEPTH", RenderTarget::AttachmentPoint::DEPTH);
 
@@ -332,6 +332,10 @@ enum_<backend::CompressedPixelDataType>("CompressedPixelDataType")
     .value("DXT1_RGBA", backend::CompressedPixelDataType::DXT1_RGBA)
     .value("DXT3_RGBA", backend::CompressedPixelDataType::DXT3_RGBA)
     .value("DXT5_RGBA", backend::CompressedPixelDataType::DXT5_RGBA)
+    .value("DXT1_SRGB", backend::CompressedPixelDataType::DXT1_SRGB)
+    .value("DXT1_SRGBA", backend::CompressedPixelDataType::DXT1_SRGBA)
+    .value("DXT3_SRGBA", backend::CompressedPixelDataType::DXT3_SRGBA)
+    .value("DXT5_SRGBA", backend::CompressedPixelDataType::DXT5_SRGBA)
     .value("RGBA_ASTC_4x4", backend::CompressedPixelDataType::RGBA_ASTC_4x4)
     .value("RGBA_ASTC_5x4", backend::CompressedPixelDataType::RGBA_ASTC_5x4)
     .value("RGBA_ASTC_5x5", backend::CompressedPixelDataType::RGBA_ASTC_5x5)
@@ -374,6 +378,20 @@ enum_<backend::SamplerMinFilter>("MinFilter")
     .value("NEAREST_MIPMAP_LINEAR", backend::SamplerMinFilter::NEAREST_MIPMAP_LINEAR)
     .value("LINEAR_MIPMAP_LINEAR", backend::SamplerMinFilter::LINEAR_MIPMAP_LINEAR);
 
+enum_<TextureSampler::CompareMode>("CompareMode")
+    .value("NONE", TextureSampler::CompareMode::NONE)
+    .value("COMPARE_TO_TEXTURE", TextureSampler::CompareMode::COMPARE_TO_TEXTURE);
+
+enum_<TextureSampler::CompareFunc>("CompareFunc")
+    .value("LESS_EQUAL", TextureSampler::CompareFunc::LE)
+    .value("GREATER_EQUAL", TextureSampler::CompareFunc::GE)
+    .value("LESS", TextureSampler::CompareFunc::L)
+    .value("GREATER", TextureSampler::CompareFunc::G)
+    .value("EQUAL", TextureSampler::CompareFunc::E)
+    .value("NOT_EQUAL", TextureSampler::CompareFunc::NE)
+    .value("ALWAYS", TextureSampler::CompareFunc::A)
+    .value("NEVER", TextureSampler::CompareFunc::N);
+
 enum_<backend::SamplerMagFilter>("MagFilter")
     .value("NEAREST", backend::SamplerMagFilter::NEAREST)
     .value("LINEAR", backend::SamplerMagFilter::LINEAR);
@@ -383,5 +401,40 @@ enum_<backend::CullingMode>("CullingMode")
     .value("FRONT", backend::CullingMode::FRONT)
     .value("BACK", backend::CullingMode::BACK)
     .value("FRONT_AND_BACK", backend::CullingMode::FRONT_AND_BACK);
+
+enum_<filament::TransparencyMode>("TransparencyMode")
+    .value("DEFAULT", filament::TransparencyMode::DEFAULT)
+    .value("TWO_PASSES_ONE_SIDE", filament::TransparencyMode::TWO_PASSES_ONE_SIDE)
+    .value("TWO_PASSES_TWO_SIDES", filament::TransparencyMode::TWO_PASSES_TWO_SIDES);
+
+enum_<backend::FeatureLevel>("FeatureLevel")
+    .value("FEATURE_LEVEL_1", backend::FeatureLevel::FEATURE_LEVEL_1)
+    .value("FEATURE_LEVEL_2", backend::FeatureLevel::FEATURE_LEVEL_2);
+
+enum_<backend::StencilOperation>("StencilOperation")
+    .value("KEEP", backend::StencilOperation::KEEP)
+    .value("ZERO", backend::StencilOperation::ZERO)
+    .value("REPLACE", backend::StencilOperation::REPLACE)
+    .value("INCR_CLAMP", backend::StencilOperation::INCR)
+    .value("INCR_WRAP", backend::StencilOperation::INCR_WRAP)
+    .value("DECR_CLAMP", backend::StencilOperation::DECR)
+    .value("DECR_WRAP", backend::StencilOperation::DECR_WRAP)
+    .value("INVERT", backend::StencilOperation::INVERT);
+
+enum_<backend::StencilFace>("StencilFace")
+    .value("FRONT", backend::StencilFace::FRONT)
+    .value("BACK", backend::StencilFace::BACK)
+    .value("FRONT_AND_BACK", backend::StencilFace::FRONT_AND_BACK);
+
+enum_<ktxreader::Ktx2Reader::TransferFunction>("Ktx2Reader$TransferFunction")
+    .value("LINEAR", ktxreader::Ktx2Reader::TransferFunction::LINEAR)
+    .value("sRGB", ktxreader::Ktx2Reader::TransferFunction::sRGB);
+
+enum_<ktxreader::Ktx2Reader::Result>("Ktx2Reader$Result")
+    .value("SUCCESS", ktxreader::Ktx2Reader::Result::SUCCESS)
+    .value("COMPRESSED_TRANSCODE_FAILURE", ktxreader::Ktx2Reader::Result::COMPRESSED_TRANSCODE_FAILURE)
+    .value("UNCOMPRESSED_TRANSCODE_FAILURE", ktxreader::Ktx2Reader::Result::UNCOMPRESSED_TRANSCODE_FAILURE)
+    .value("FORMAT_UNSUPPORTED", ktxreader::Ktx2Reader::Result::FORMAT_UNSUPPORTED)
+    .value("FORMAT_ALREADY_REQUESTED", ktxreader::Ktx2Reader::Result::FORMAT_ALREADY_REQUESTED);
 
 }

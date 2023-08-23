@@ -14,152 +14,156 @@
  * limitations under the License.
  */
 
-#ifndef TNT_FILAMENT_DRIVER_VULKANDRIVER_H
-#define TNT_FILAMENT_DRIVER_VULKANDRIVER_H
+#ifndef TNT_FILAMENT_BACKEND_VULKANDRIVER_H
+#define TNT_FILAMENT_BACKEND_VULKANDRIVER_H
 
-#include "VulkanBinder.h"
-#include "VulkanDisposer.h"
+#include "VulkanBlitter.h"
+#include "VulkanConstants.h"
 #include "VulkanContext.h"
+#include "VulkanDisposer.h"
 #include "VulkanFboCache.h"
+#include "VulkanHandles.h"
+#include "VulkanPipelineCache.h"
+#include "VulkanReadPixels.h"
 #include "VulkanSamplerCache.h"
 #include "VulkanStagePool.h"
 #include "VulkanUtility.h"
 
-#include "private/backend/Driver.h"
 #include "DriverBase.h"
+#include "private/backend/Driver.h"
+#include "private/backend/HandleAllocator.h"
 
-#include <utils/compiler.h>
 #include <utils/Allocator.h>
+#include <utils/compiler.h>
 
-#include <unordered_map>
-#include <vector>
-
-namespace filament {
-namespace backend {
+namespace filament::backend {
 
 class VulkanPlatform;
-struct VulkanRenderTarget;
 struct VulkanSamplerGroup;
+
+class VulkanHandleAllocator {
+public:
+    VulkanHandleAllocator(size_t arenaSize)
+        : mHandleAllocatorImpl("Handles", arenaSize) {}
+
+    template<typename D, typename... ARGS>
+    inline Handle<D> initHandle(ARGS&&... args) noexcept {
+        return mHandleAllocatorImpl.allocateAndConstruct<D>(std::forward<ARGS>(args)...);
+    }
+
+    template<typename D>
+    inline Handle<D> allocHandle() noexcept {
+        return mHandleAllocatorImpl.allocate<D>();
+    }
+
+    template<typename D, typename B, typename... ARGS>
+    inline typename std::enable_if<std::is_base_of<B, D>::value, D>::type* construct(
+            Handle<B> const& handle, ARGS&&... args) noexcept {
+        return mHandleAllocatorImpl.construct<D, B>(handle, std::forward<ARGS>(args)...);
+    }
+
+    template<typename B, typename D,
+            typename = typename std::enable_if<std::is_base_of<B, D>::value, D>::type>
+    inline void destruct(Handle<B> handle, D const* p) noexcept {
+        return mHandleAllocatorImpl.deallocate(handle, p);
+    }
+
+    template<typename Dp, typename B>
+    inline typename std::enable_if_t<
+            std::is_pointer_v<Dp> && std::is_base_of_v<B, typename std::remove_pointer_t<Dp>>, Dp>
+    handle_cast(Handle<B>& handle) noexcept {
+        return mHandleAllocatorImpl.handle_cast<Dp, B>(handle);
+    }
+
+    template<typename Dp, typename B>
+    inline typename std::enable_if_t<
+            std::is_pointer_v<Dp> && std::is_base_of_v<B, typename std::remove_pointer_t<Dp>>, Dp>
+    handle_cast(Handle<B> const& handle) noexcept {
+        return mHandleAllocatorImpl.handle_cast<Dp, B>(handle);
+    }
+
+    template<typename D, typename B>
+    inline void destruct(Handle<B> handle) noexcept {
+        if constexpr (std::is_base_of_v<VulkanIndexBuffer, D>
+                      || std::is_base_of_v<VulkanBufferObject, D>) {
+            auto ptr = handle_cast<D*>(handle);
+            ptr->terminate();
+        }
+        destruct(handle, handle_cast<D const*>(handle));
+    }
+
+    HandleAllocatorVK mHandleAllocatorImpl;
+};
 
 class VulkanDriver final : public DriverBase {
 public:
-    static Driver* create(backend::VulkanPlatform* platform,
-            const char* const* ppEnabledExtensions, uint32_t enabledExtensionCount) noexcept;
+    static Driver* create(VulkanPlatform* platform, VulkanContext const& context,
+            Platform::DriverConfig const& driverConfig) noexcept;
 
 private:
+    void debugCommandBegin(CommandStream* cmds, bool synchronous,
+            const char* methodName) noexcept override;
 
-#ifndef NDEBUG
-    void debugCommand(const char* methodName) override;
-#endif
-
-    inline VulkanDriver(backend::VulkanPlatform* platform,
-            const char* const* ppEnabledExtensions, uint32_t enabledExtensionCount) noexcept;
+    inline VulkanDriver(VulkanPlatform* platform, VulkanContext const& context,
+            Platform::DriverConfig const& driverConfig) noexcept;
 
     ~VulkanDriver() noexcept override;
+
+    Dispatcher getDispatcher() const noexcept final;
 
     ShaderModel getShaderModel() const noexcept final;
 
     template<typename T>
-    friend class backend::ConcreteDispatcher;
+    friend class ConcreteDispatcher;
 
-#define DECL_DRIVER_API(methodName, paramsDecl, params) \
+#define DECL_DRIVER_API(methodName, paramsDecl, params)                                            \
     UTILS_ALWAYS_INLINE inline void methodName(paramsDecl);
 
-#define DECL_DRIVER_API_SYNCHRONOUS(RetType, methodName, paramsDecl, params) \
+#define DECL_DRIVER_API_SYNCHRONOUS(RetType, methodName, paramsDecl, params)                       \
     RetType methodName(paramsDecl) override;
 
-#define DECL_DRIVER_API_RETURN(RetType, methodName, paramsDecl, params) \
-    RetType methodName##S() noexcept override; \
+#define DECL_DRIVER_API_RETURN(RetType, methodName, paramsDecl, params)                            \
+    RetType methodName##S() noexcept override;                                                     \
     UTILS_ALWAYS_INLINE inline void methodName##R(RetType, paramsDecl);
 
 #include "private/backend/DriverAPI.inc"
 
     VulkanDriver(VulkanDriver const&) = delete;
-    VulkanDriver& operator = (VulkanDriver const&) = delete;
+    VulkanDriver& operator=(VulkanDriver const&) = delete;
 
 private:
-    backend::VulkanPlatform& mContextManager;
+    inline void setRenderPrimitiveBuffer(Handle<HwRenderPrimitive> rph, Handle<HwVertexBuffer> vbh,
+            Handle<HwIndexBuffer> ibh);
 
-    // For now we're not bothering to store handles in pools, just simple on-demand allocation.
-    // We have a little map from integer handles to "blobs" which get replaced with the Hw objects.
-    using Blob = std::vector<uint8_t>;
-    using HandleMap = std::unordered_map<HandleBase::HandleId, Blob>;
-    HandleMap mHandleMap;
-    std::mutex mHandleMapMutex;
-    HandleBase::HandleId mNextId = 1;
+    inline void setRenderPrimitiveRange(Handle<HwRenderPrimitive> rph, PrimitiveType pt,
+            uint32_t offset, uint32_t minIndex, uint32_t maxIndex, uint32_t count);
 
-    template<typename Dp, typename B>
-    Handle<B> alloc_handle() {
-        std::lock_guard<std::mutex> lock(mHandleMapMutex);
-        mHandleMap[mNextId] = Blob(sizeof(Dp));
-        return Handle<B>(mNextId++);
-    }
+    void collectGarbage();
 
-    template<typename Dp, typename B>
-    Dp* handle_cast(HandleMap& handleMap, Handle<B> handle) noexcept {
-        assert(handle);
-        if (!handle) return nullptr; // better to get a NPE than random behavior/corruption
-        std::lock_guard<std::mutex> lock(mHandleMapMutex);
-        auto iter = handleMap.find(handle.getId());
-        assert(iter != handleMap.end());
-        Blob& blob = iter->second;
-        assert(blob.size() == sizeof(Dp));
-        return reinterpret_cast<Dp*>(blob.data());
-    }
+    VulkanPlatform* mPlatform = nullptr;
+    std::unique_ptr<VulkanCommands> mCommands;
+    std::unique_ptr<VulkanTimestamps> mTimestamps;
+    std::unique_ptr<VulkanTexture> mEmptyTexture;
 
-    template<typename Dp, typename B>
-    const Dp* handle_const_cast(HandleMap& handleMap, const Handle<B>& handle) noexcept {
-        assert(handle);
-        if (!handle) return nullptr; // better to get a NPE than random behavior/corruption
-        std::lock_guard<std::mutex> lock(mHandleMapMutex);
-        auto iter = handleMap.find(handle.getId());
-        assert(iter != handleMap.end());
-        Blob& blob = iter->second;
-        assert(blob.size() == sizeof(Dp));
-        return reinterpret_cast<const Dp*>(blob.data());
-    }
-
-    template<typename Dp, typename B, typename ... ARGS>
-    Dp* construct_handle(HandleMap& handleMap, Handle<B>& handle, ARGS&& ... args) noexcept {
-        assert(handle);
-        if (!handle) return nullptr; // better to get a NPE than random behavior/corruption
-        std::lock_guard<std::mutex> lock(mHandleMapMutex);
-        auto iter = handleMap.find(handle.getId());
-        assert(iter != handleMap.end());
-        Blob& blob = iter->second;
-        assert(blob.size() == sizeof(Dp));
-        Dp* addr = reinterpret_cast<Dp*>(blob.data());
-        new(addr) Dp(std::forward<ARGS>(args)...);
-        return addr;
-    }
-
-    template<typename Dp, typename B>
-    void destruct_handle(HandleMap& handleMap, const Handle<B>& handle) noexcept {
-        std::lock_guard<std::mutex> lock(mHandleMapMutex);
-        // Call the destructor, remove the blob, don't bother reclaiming the integer id.
-        auto iter = handleMap.find(handle.getId());
-        assert(iter != handleMap.end());
-        Blob& blob = iter->second;
-        assert(blob.size() == sizeof(Dp));
-        reinterpret_cast<Dp*>(blob.data())->~Dp();
-        handleMap.erase(handle.getId());
-    }
-
-    void refreshSwapChain();
+    VulkanSwapChain* mCurrentSwapChain = nullptr;
+    VulkanRenderTarget* mDefaultRenderTarget = nullptr;
+    VulkanRenderPass mCurrentRenderPass = {};
+    VmaAllocator mAllocator = VK_NULL_HANDLE;
+    VkDebugReportCallbackEXT mDebugCallback = VK_NULL_HANDLE;
+    VkDebugUtilsMessengerEXT mDebugMessenger = VK_NULL_HANDLE;
 
     VulkanContext mContext = {};
-    VulkanBinder mBinder;
+    VulkanHandleAllocator mHandleAllocator;
+    VulkanPipelineCache mPipelineCache;
     VulkanDisposer mDisposer;
     VulkanStagePool mStagePool;
     VulkanFboCache mFramebufferCache;
     VulkanSamplerCache mSamplerCache;
-    VulkanRenderTarget* mCurrentRenderTarget = nullptr;
-    VulkanSamplerGroup* mSamplerBindings[VulkanBinder::SAMPLER_BINDING_COUNT] = {};
-    VkDebugReportCallbackEXT mDebugCallback = VK_NULL_HANDLE;
-    VkDebugUtilsMessengerEXT mDebugMessenger = VK_NULL_HANDLE;
+    VulkanBlitter mBlitter;
+    VulkanSamplerGroup* mSamplerBindings[VulkanPipelineCache::SAMPLER_BINDING_COUNT] = {};
+    VulkanReadPixels mReadPixels;
 };
 
-} // namespace backend
-} // namespace filament
+} // namespace filament::backend
 
-#endif // TNT_FILAMENT_DRIVER_VULKANDRIVER_H
+#endif // TNT_FILAMENT_BACKEND_VULKANDRIVER_H

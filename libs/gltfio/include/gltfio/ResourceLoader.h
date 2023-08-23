@@ -19,16 +19,19 @@
 
 #include <gltfio/FilamentAsset.h>
 
-#include <backend/BufferDescriptor.h>
+#include <filament/VertexBuffer.h>
+
+#include <utils/compiler.h>
 
 namespace filament {
     class Engine;
 }
 
-namespace gltfio {
+namespace filament::gltfio {
 
 struct FFilamentAsset;
 class AssetPool;
+class TextureProvider;
 
 /**
  * \struct ResourceConfiguration ResourceLoader.h gltfio/ResourceLoader.h
@@ -46,10 +49,6 @@ struct ResourceConfiguration {
     //! If true, adjusts skinning weights to sum to 1. Well formed glTF files do not need this,
     //! but it is useful for robustness.
     bool normalizeSkinningWeights;
-
-    //! If true, computes the bounding boxes of all \c POSITION attibutes. Well formed glTF files
-    //! do not need this, but it is useful for robustness.
-    bool recomputeBoundingBoxes;
 };
 
 /**
@@ -66,7 +65,7 @@ struct ResourceConfiguration {
  * subsequent re-loads of the same asset. To fix this, we would need to enable shared ownership
  * of Texture objects between ResourceLoader and FilamentAsset.
  */
-class ResourceLoader {
+class UTILS_PUBLIC ResourceLoader {
 public:
     using BufferDescriptor = filament::backend::BufferDescriptor;
 
@@ -89,9 +88,23 @@ public:
     void addResourceData(const char* uri, BufferDescriptor&& buffer);
 
     /**
+     * Register a plugin that can consume PNG / JPEG content and produce filament::Texture objects.
+     *
+     * Destruction of the given provider is the client's responsibility.
+     */
+    void addTextureProvider(const char* mimeType, TextureProvider* provider);
+
+    /**
      * Checks if the given resource has already been added to the URI cache.
      */
     bool hasResourceData(const char* uri) const;
+
+    /**
+     * Frees memory by evicting the URI cache that was populated via addResourceData.
+     *
+     * This can be called only after a model is fully loaded or after loading has been cancelled.
+     */
+    void evictResourceData();
 
     /**
      * Loads resources for the given asset from the filesystem or data cache and "finalizes" the
@@ -131,7 +144,7 @@ public:
     void asyncUpdateLoad();
 
     /**
-     * Cancels pending decoder jobs and frees all CPU-side texel data.
+     * Cancels pending decoder jobs, frees all CPU-side texel data, and flushes the Engine.
      *
      * Calling this is only necessary if the asyncBeginLoad API was used
      * and cancellation is required before progress reaches 100%.
@@ -140,15 +153,13 @@ public:
 
 private:
     bool loadResources(FFilamentAsset* asset, bool async);
-    void applySparseData(FFilamentAsset* asset) const;
     void normalizeSkinningWeights(FFilamentAsset* asset) const;
-    void updateBoundingBoxes(FFilamentAsset* asset) const;
     AssetPool* mPool;
     struct Impl;
     Impl* pImpl;
 };
 
-} // namespace gltfio
+} // namespace filament::gltfio
 
 #endif // GLTFIO_RESOURCELOADER_H
 

@@ -26,7 +26,7 @@
 
 #include <filameshio/MeshReader.h>
 #include <geometry/SurfaceOrientation.h>
-#include <image/KtxUtility.h>
+#include <ktxreader/Ktx1Reader.h>
 
 #include <sstream>
 
@@ -35,6 +35,7 @@
 #include "resources.h"
 
 using namespace filamesh;
+using namespace ktxreader;
 
 static constexpr float OBJECT_SCALE = 0.02f;
 
@@ -183,7 +184,9 @@ FilamentApp::~FilamentApp() {
     engine->destroy(renderer);
     engine->destroy(scene);
     engine->destroy(view);
-    engine->destroy(camera);
+    Entity c = camera->getEntity();
+    engine->destroyCameraComponent(c);
+    EntityManager::get().destroy(c);
     engine->destroy(swapChain);
     engine->destroy(&engine);
 }
@@ -197,16 +200,17 @@ void FilamentApp::setupFilament() {
     swapChain = engine->createSwapChain(nativeLayer);
     renderer = engine->createRenderer();
     scene = engine->createScene();
-    camera = engine->createCamera();
+    Entity c = EntityManager::get().create();
+    camera = engine->createCamera(c);
     camera->setProjection(60, (float) width / height, 0.1, 10);
 }
 
 void FilamentApp::setupIbl() {
-    image::KtxBundle* iblBundle = new image::KtxBundle(RESOURCES_VENETIAN_CROSSROADS_2K_IBL_DATA,
+    image::Ktx1Bundle* iblBundle = new image::Ktx1Bundle(RESOURCES_VENETIAN_CROSSROADS_2K_IBL_DATA,
                                                        RESOURCES_VENETIAN_CROSSROADS_2K_IBL_SIZE);
     float3 harmonics[9];
     iblBundle->getSphericalHarmonics(harmonics);
-    app.iblTexture = image::ktx::createTexture(engine, iblBundle, false);
+    app.iblTexture = Ktx1Reader::createTexture(engine, iblBundle, false);
 
     app.indirectLight = IndirectLight::Builder()
         .reflections(app.iblTexture)

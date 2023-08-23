@@ -91,9 +91,32 @@ public class SwapChain {
      */
     public static final long CONFIG_ENABLE_XCB = 0x4;
 
+    /**
+     * Indicates that the SwapChain must automatically perform linear to sRGB encoding.
+     *
+     * This flag is ignored if isSRGBSwapChainSupported() is false.
+     *
+     * When using this flag, post-processing should be disabled.
+     *
+     * @see SwapChain#isSRGBSwapChainSupported
+     * @see View#setPostProcessingEnabled
+     */
+    public static final long CONFIG_SRGB_COLORSPACE = 0x10;
+
     SwapChain(long nativeSwapChain, Object surface) {
         mNativeObject = nativeSwapChain;
         mSurface = surface;
+    }
+
+    /**
+     * Return whether createSwapChain supports the SWAP_CHAIN_CONFIG_SRGB_COLORSPACE flag.
+     * The default implementation returns false.
+     *
+     * @param engine A reference to the filament Engine
+     * @return true if SWAP_CHAIN_CONFIG_SRGB_COLORSPACE is supported, false otherwise.
+     */
+    public static boolean isSRGBSwapChainSupported(@NonNull Engine engine) {
+        return nIsSRGBSwapChainSupported(engine.getNativeObject());
     }
 
     /**
@@ -102,6 +125,31 @@ public class SwapChain {
      */
     public Object getNativeWindow() {
         return mSurface;
+    }
+
+    /**
+     * FrameCompletedCallback is a callback function that notifies an application when a frame's
+     * contents have completed rendering on the GPU.
+     *
+     * <p>
+     * Use setFrameCompletedCallback to set a callback on an individual SwapChain. Each time a frame
+     * completes GPU rendering, the callback will be called.
+     * </p>
+     *
+     * <p>
+     * The FrameCompletedCallback is guaranteed to be called on the main Filament thread.
+     * </p>
+     *
+     * <p>
+     * Warning: Only Filament's Metal backend supports frame callbacks. Other backends ignore the
+     * callback (which will never be called) and proceed normally.
+     * </p>
+     *
+     * @param handler     A {@link java.util.concurrent.Executor Executor}.
+     * @param callback    The Runnable callback to invoke.
+     */
+    public void setFrameCompletedCallback(@NonNull Object handler, @NonNull Runnable callback) {
+        nSetFrameCompletedCallback(getNativeObject(), handler, callback);
     }
 
     public long getNativeObject() {
@@ -114,4 +162,7 @@ public class SwapChain {
     void clearNativeObject() {
         mNativeObject = 0;
     }
+
+    private static native void nSetFrameCompletedCallback(long nativeSwapChain, Object handler, Runnable callback);
+    private static native boolean nIsSRGBSwapChainSupported(long nativeEngine);
 }

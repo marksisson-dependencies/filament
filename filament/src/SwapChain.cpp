@@ -20,22 +20,20 @@
 
 namespace filament {
 
-FSwapChain::FSwapChain(FEngine& engine, void* nativeWindow, uint64_t flags)
-        : mNativeWindow(nativeWindow), mConfigFlags(flags) {
-    mSwapChain = engine.getDriverApi().createSwapChain(nativeWindow, flags);
-}
-
-FSwapChain::FSwapChain(FEngine& engine, uint32_t width, uint32_t height, uint64_t flags)
-        : mConfigFlags(flags) {
-    mSwapChain = engine.getDriverApi().createSwapChainHeadless(width, height, flags);
-}
-
-void FSwapChain::terminate(FEngine& engine) noexcept {
-    engine.getDriverApi().destroySwapChain(mSwapChain);
-}
-
 void* SwapChain::getNativeWindow() const noexcept {
-    return upcast(this)->getNativeWindow();
+    return downcast(this)->getNativeWindow();
+}
+
+void SwapChain::setFrameScheduledCallback(FrameScheduledCallback callback, void* user) {
+    return downcast(this)->setFrameScheduledCallback(callback, user);
+}
+
+void SwapChain::setFrameCompletedCallback(FrameCompletedCallback callback, void* user) {
+    return downcast(this)->setFrameCompletedCallback(callback, user);
+}
+
+bool SwapChain::isSRGBSwapChainSupported(Engine& engine) noexcept {
+    return FSwapChain::isSRGBSwapChainSupported(downcast(engine));
 }
 
 } // namespace filament

@@ -26,7 +26,6 @@
 
 namespace filament {
 namespace backend {
-namespace metal {
 
 MetalBufferPoolEntry const* MetalBufferPool::acquireBuffer(size_t numBytes) {
     std::lock_guard<std::mutex> lock(mMutex);
@@ -44,6 +43,7 @@ MetalBufferPoolEntry const* MetalBufferPool::acquireBuffer(size_t numBytes) {
     // We were not able to find a sufficiently large stage, so create a new one.
     id<MTLBuffer> buffer = [mContext.device newBufferWithLength:numBytes
                                                         options:MTLResourceStorageModeShared];
+    ASSERT_POSTCONDITION(buffer, "Could not allocate Metal staging buffer of size %zu.", numBytes);
     MetalBufferPoolEntry* stage = new MetalBufferPoolEntry({
         .buffer = buffer,
         .capacity = numBytes,
@@ -103,13 +103,12 @@ void MetalBufferPool::gc() noexcept {
 void MetalBufferPool::reset() noexcept {
     std::lock_guard<std::mutex> lock(mMutex);
 
-    assert(mUsedStages.empty());
+    assert_invariant(mUsedStages.empty());
     for (auto pair : mFreeStages) {
         delete pair.second;
     }
     mFreeStages.clear();
 }
 
-} // namespace metal
 } // namespace backend
 } // namespace filament

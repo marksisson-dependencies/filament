@@ -22,6 +22,7 @@
 #include <filament/FilamentAPI.h>
 
 #include <backend/DriverEnums.h>
+#include <backend/TargetBufferInfo.h>
 
 #include <stddef.h>
 
@@ -36,6 +37,12 @@ class Texture;
  * An offscreen render target that can be associated with a View and contains
  * weak references to a set of attached Texture objects.
  *
+ * RenderTarget is intended to be used with the View's post-processing disabled for the most part.
+ * especially when a DEPTH attachment is also used (see Builder::texture()).
+ *
+ * Custom RenderTarget are ultimately intended to render into textures that might be used during
+ * the main render pass.
+ *
  * Clients are responsible for the lifetime of all associated Texture attachments.
  *
  * @see View
@@ -46,15 +53,29 @@ class UTILS_PUBLIC RenderTarget : public FilamentAPI {
 public:
     using CubemapFace = backend::TextureCubemapFace;
 
+    /** Minimum number of color attachment supported */
+    static constexpr uint8_t MIN_SUPPORTED_COLOR_ATTACHMENTS_COUNT =
+            backend::MRT::MIN_SUPPORTED_RENDER_TARGET_COUNT;
+
+    /** Maximum number of color attachment supported */
+    static constexpr uint8_t MAX_SUPPORTED_COLOR_ATTACHMENTS_COUNT =
+            backend::MRT::MAX_SUPPORTED_RENDER_TARGET_COUNT;
+
     /**
      * Attachment identifiers
      */
-    enum AttachmentPoint {
-        COLOR = 0,      //!< identifies the color attachment
-        DEPTH = 1,      //!< identifies the depth attachment
+    enum class AttachmentPoint : uint8_t {
+        COLOR0 = 0,          //!< identifies the 1st color attachment
+        COLOR1 = 1,          //!< identifies the 2nd color attachment
+        COLOR2 = 2,          //!< identifies the 3rd color attachment
+        COLOR3 = 3,          //!< identifies the 4th color attachment
+        COLOR4 = 4,          //!< identifies the 5th color attachment
+        COLOR5 = 5,          //!< identifies the 6th color attachment
+        COLOR6 = 6,          //!< identifies the 7th color attachment
+        COLOR7 = 7,          //!< identifies the 8th color attachment
+        DEPTH  = MAX_SUPPORTED_COLOR_ATTACHMENTS_COUNT,   //!< identifies the depth attachment
+        COLOR  = COLOR0,     //!< identifies the 1st color attachment
     };
-
-    static constexpr size_t ATTACHMENT_COUNT = 2;
 
     //! Use Builder to construct a RenderTarget object instance
     class Builder : public BuilderBase<BuilderDetails> {
@@ -70,7 +91,13 @@ public:
         /**
          * Sets a texture to a given attachment point.
          *
-         * All RenderTargets must have a non-null COLOR attachment.
+         * When using a DEPTH attachment, it is important to always disable post-processing
+         * in the View. Failing to do so will cause the DEPTH attachment to be ignored in most
+         * cases.
+         *
+         * When the intention is to keep the content of the DEPTH attachment after rendering,
+         * Usage::SAMPLEABLE must be set on the DEPTH attachment, otherwise the content of the
+         * DEPTH buffer may be discarded.
          *
          * @param attachment The attachment point of the texture.
          * @param texture The associated texture object.
@@ -145,6 +172,14 @@ public:
      * @return A texture layer. This is only relevant if the attachment's texture is a 3D texture.
      */
     uint32_t getLayer(AttachmentPoint attachment) const noexcept;
+
+    /**
+     * Returns the number of color attachments usable by this instance of Engine. This method is
+     * guaranteed to return at least MIN_SUPPORTED_COLOR_ATTACHMENTS_COUNT and at most
+     * MAX_SUPPORTED_COLOR_ATTACHMENTS_COUNT.
+     * @return Number of color attachments usable in a render target.
+     */
+    uint8_t getSupportedColorAttachmentsCount() const noexcept;
 };
 
 } // namespace filament

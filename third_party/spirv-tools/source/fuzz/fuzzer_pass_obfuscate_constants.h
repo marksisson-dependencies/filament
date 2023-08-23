@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef SOURCE_FUZZ_FUZZER_PASS_OBFUSCATE_CONSTANTS_
-#define SOURCE_FUZZ_FUZZER_PASS_OBFUSCATE_CONSTANTS_
+#ifndef SOURCE_FUZZ_FUZZER_PASS_OBFUSCATE_CONSTANTS_H_
+#define SOURCE_FUZZ_FUZZER_PASS_OBFUSCATE_CONSTANTS_H_
 
 #include <vector>
 
@@ -28,11 +28,10 @@ namespace fuzz {
 class FuzzerPassObfuscateConstants : public FuzzerPass {
  public:
   FuzzerPassObfuscateConstants(
-      opt::IRContext* ir_context, FactManager* fact_manager,
+      opt::IRContext* ir_context, TransformationContext* transformation_context,
       FuzzerContext* fuzzer_context,
-      protobufs::TransformationSequence* transformations);
-
-  ~FuzzerPassObfuscateConstants() override;
+      protobufs::TransformationSequence* transformations,
+      bool ignore_inapplicable_transformations);
 
   void Apply() override;
 
@@ -86,8 +85,8 @@ class FuzzerPassObfuscateConstants : public FuzzerPass {
   // (similar for |less_than_opcodes|).
   void ObfuscateBoolConstantViaConstantPair(
       uint32_t depth, const protobufs::IdUseDescriptor& bool_constant_use,
-      const std::vector<SpvOp>& greater_than_opcodes,
-      const std::vector<SpvOp>& less_than_opcodes, uint32_t constant_id_1,
+      const std::vector<spv::Op>& greater_than_opcodes,
+      const std::vector<spv::Op>& less_than_opcodes, uint32_t constant_id_1,
       uint32_t constant_id_2, bool first_constant_is_larger);
 
   // A helper method to determine whether input operand |in_operand_index| of
@@ -97,11 +96,16 @@ class FuzzerPassObfuscateConstants : public FuzzerPass {
   void MaybeAddConstantIdUse(
       const opt::Instruction& inst, uint32_t in_operand_index,
       uint32_t base_instruction_result_id,
-      const std::map<SpvOp, uint32_t>& skipped_opcode_count,
+      const std::map<spv::Op, uint32_t>& skipped_opcode_count,
       std::vector<protobufs::IdUseDescriptor>* constant_uses);
+
+  // Returns a vector of unique words that denote constants. Every such constant
+  // is used in |FactConstantUniform| and has type with id equal to |type_id|.
+  std::vector<std::vector<uint32_t>> GetConstantWordsFromUniformsForType(
+      uint32_t type_id);
 };
 
 }  // namespace fuzz
 }  // namespace spvtools
 
-#endif  // SOURCE_FUZZ_FUZZER_PASS_OBFUSCATE_CONSTANTS_
+#endif  // SOURCE_FUZZ_FUZZER_PASS_OBFUSCATE_CONSTANTS_H_

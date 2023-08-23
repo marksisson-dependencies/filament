@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 The Android Open Source Project
+ * Copyright (C) 2021 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,14 +14,10 @@
  * limitations under the License.
  */
 
-#include <fg/FrameGraph.h>
-
-#include <fg/FrameGraphPassResources.h>
-#include <fg/FrameGraphHandle.h>
-
-#include "fg/fg/ResourceNode.h"
-#include "fg/fg/PassNode.h"
-#include "fg/fg/VirtualResource.h"
+#include "fg/FrameGraph.h"
+#include "fg/details/PassNode.h"
+#include "fg/details/ResourceNode.h"
+#include "fg/details/DependencyGraph.h"
 
 #include "details/Engine.h"
 
@@ -29,521 +25,471 @@
 #include <backend/Handle.h>
 
 #include <utils/Panic.h>
-#include <utils/Log.h>
-
-using namespace utils;
+#include <utils/Systrace.h>
 
 namespace filament {
 
-using namespace backend;
-using namespace fg;
-
-// ------------------------------------------------------------------------------------------------
-
-struct fg::Alias { //4
-    FrameGraphHandle from, to;
-};
-
-FrameGraph::Builder::Builder(FrameGraph& fg, PassNode& pass) noexcept
-    : mFrameGraph(fg), mPass(pass) {
+inline FrameGraph::Builder::Builder(FrameGraph& fg, PassNode* passNode) noexcept
+        : mFrameGraph(fg), mPassNode(passNode) {
 }
 
-FrameGraph::Builder::~Builder() noexcept = default;
-
-const char* FrameGraph::Builder::getPassName() const noexcept {
-    return mPass.name;
+void FrameGraph::Builder::sideEffect() noexcept {
+    mPassNode->makeTarget();
 }
 
-const char* FrameGraph::Builder::getName(FrameGraphHandle const& r) const noexcept {
-    ResourceNode& resourceNode = mFrameGraph.getResourceNodeUnchecked(r);
-    fg::ResourceEntryBase* pResource = resourceNode.resource;
-    assert(pResource);
-    return pResource ? pResource->name : "(invalid)";
+const char* FrameGraph::Builder::getName(FrameGraphHandle handle) const noexcept {
+    return mFrameGraph.getResource(handle)->name;
 }
 
-FrameGraphId<FrameGraphRenderTarget> FrameGraph::Builder::createRenderTargetImpl(
-        const char* name, typename FrameGraphRenderTarget::Descriptor const& desc) noexcept {
-    auto handle = mFrameGraph.create<FrameGraphRenderTarget>(name, desc);
-    return mPass.use(mFrameGraph, handle);
+uint32_t FrameGraph::Builder::declareRenderPass(const char* name,
+        FrameGraphRenderPass::Descriptor const& desc) {
+    // it's safe here to cast to RenderPassNode because we can't be here for a PresentPassNode
+    // also only RenderPassNodes have the concept of render targets.
+    return static_cast<RenderPassNode*>(mPassNode)->declareRenderTarget(mFrameGraph, *this, name, desc);
 }
 
-FrameGraphHandle FrameGraph::Builder::readImpl(FrameGraphHandle input) {
-    return mPass.read(mFrameGraph, input);
-}
-
-FrameGraphHandle FrameGraph::Builder::writeImpl(FrameGraphHandle output) {
-    return mPass.write(mFrameGraph, output);
-}
-
-FrameGraphId<FrameGraphTexture> FrameGraph::Builder::sample(FrameGraphId<FrameGraphTexture> input) {
-    return mPass.sample(mFrameGraph, input);
-}
-
-FrameGraph::Builder& FrameGraph::Builder::sideEffect() noexcept {
-    mPass.hasSideEffect = true;
-    return *this;
+FrameGraphId<FrameGraphTexture> FrameGraph::Builder::declareRenderPass(
+        FrameGraphId<FrameGraphTexture> color, uint32_t* index) {
+    color = write(color);
+    uint32_t const id = declareRenderPass(getName(color),
+            { .attachments = { .color = { color }}});
+    if (index) *index = id;
+    return color;
 }
 
 // ------------------------------------------------------------------------------------------------
 
 FrameGraph::FrameGraph(ResourceAllocatorInterface& resourceAllocator)
         : mResourceAllocator(resourceAllocator),
-          mArena("FrameGraph Arena", 131072), // TODO: the Area will eventually come from outside
-          mPassNodes(mArena),
+          mArena("FrameGraph Arena", 131072),
+          mResourceSlots(mArena),
+          mResources(mArena),
           mResourceNodes(mArena),
-          mResourceNodeEntries(mArena),
-          mResourceEntries(mArena) {
-    mPassNodes.reserve(64);             // ~16K
-    mResourceNodes.reserve(256);        // ~4K
-    mResourceNodeEntries.reserve(256);  // ~8K
-    mResourceEntries.reserve(256);      // ~8K
-//    slog.d << "mPassNodes: " << sizeof(std::decay<decltype(mPassNodes.front())>::type) << io::endl;
-//    slog.d << "mResourceNodes: " << sizeof(std::decay<decltype(mResourceNodes.front())>::type) << io::endl;
-//    slog.d << "mResourceNodeEntries: " << sizeof(std::decay<decltype(mResourceNodeEntries.front())>::type) << io::endl;
-//    slog.d << "mResourceEntries: " << sizeof(std::decay<decltype(mResourceEntries.front())>::type) << io::endl;
+          mPassNodes(mArena)
+{
+    mResourceSlots.reserve(256);
+    mResources.reserve(256);
+    mResourceNodes.reserve(256);
+    mPassNodes.reserve(64);
 }
 
-FrameGraph::~FrameGraph() = default;
-
-bool FrameGraph::isValid(FrameGraphHandle handle) const noexcept {
-    if (!handle.isValid()) return false;
-    auto const& registry = mResourceNodes;
-    assert(handle.index < registry.size());
-    ResourceNode const& node = *registry[handle.index];
-    return node.version == node.resource->version;
+UTILS_NOINLINE
+void FrameGraph::destroyInternal() noexcept {
+    // the order of destruction is important here
+    LinearAllocatorArena& arena = mArena;
+    std::for_each(mPassNodes.begin(), mPassNodes.end(), [&arena](auto item) {
+        arena.destroy(item);
+    });
+    std::for_each(mResourceNodes.begin(), mResourceNodes.end(), [&arena](auto item) {
+        arena.destroy(item);
+    });
+    std::for_each(mResources.begin(), mResources.end(), [&arena](auto item) {
+        arena.destroy(item);
+    });
 }
 
-bool FrameGraph::equal(FrameGraphHandle lhs, FrameGraphHandle rhs) const noexcept {
-    if (lhs == rhs) {
-        return true;
-    }
-    if (lhs.isValid() != rhs.isValid()) {
-        return false;
-    }
-    auto const& registry = mResourceNodes;
-    assert(lhs.index < registry.size());
-    assert(rhs.index < registry.size());
-    assert(registry[lhs.index]->resource);
-    assert(registry[rhs.index]->resource);
-    return registry[lhs.index]->resource == registry[rhs.index]->resource;
+FrameGraph::~FrameGraph() noexcept {
+    destroyInternal();
 }
 
-FrameGraphHandle FrameGraph::createResourceNode(fg::ResourceEntryBase* resource) noexcept {
-    auto& resourceNodes = mResourceNodes;
-    auto& resourceNodeEntries = mResourceNodeEntries;
-    size_t index = resourceNodes.size();
-    ResourceNode* pBase = mArena.make<ResourceNode>(resource, resource->version);
-    resourceNodeEntries.emplace_back(pBase, *this);
-    resourceNodes.emplace_back(pBase);
-    return FrameGraphHandle{ (uint16_t)index };
-}
-
-void FrameGraph::moveResourceBase(FrameGraphHandle fromHandle, FrameGraphHandle toHandle) {
-    // 'to' becomes 'from'
-    ResourceNode& from = getResourceNode(fromHandle);
-    ResourceNode& to   = getResourceNode(toHandle);
-    Vector<ResourceNode*>& resourceNodes = mResourceNodes;
-
-    // The pass that is writing to "fromHandle" no longer does (and might be culled)
-    // (note: there can only be a single pass that can be a writer)
-    if (from.writerIndex.isValid()) {
-        PassNode* const pass = &mPassNodes[from.writerIndex.index];
-        assert(pass);
-        auto pos = std::find_if(pass->writes.begin(), pass->writes.end(),
-                [fromHandle](auto handle) { return handle == fromHandle; });
-        assert(pos != pass->writes.end());
-        pass->writes.erase(pos);
-        from.writerIndex = to.writerIndex;
-    }
-
-    // The 'to' node becomes the 'from' node and therefore inherits passes that are reading
-    // from it (in fact they'll share the same node).
-    resourceNodes[toHandle.index] = resourceNodes[fromHandle.index];
-    // Then all the ResourceNodes that match this resource, are modified to point to the
-    // 'from' resource -- but the nodes themselves are not changed. i.e. they keep their
-    // own reader/writers.
-    for (auto& cur : resourceNodes) {
-        if (cur->resource == to.resource) {
-            cur->resource = from.resource;
-        }
-    }
-}
-
-void FrameGraph::moveResource(
-        FrameGraphId<FrameGraphRenderTarget> fromHandle,
-        FrameGraphId<FrameGraphTexture> toHandle) {
-    // 'to' becomes 'from'
-    // all rendertargets that have toHandle as attachment become fromHandle RTs
-
-    // getResourceNode() validates the handles
-    ResourceNode& from = getResourceNode(fromHandle);
-    ResourceNode& to   = getResourceNode(toHandle);
-    Vector<ResourceNode*>& resourceNodes = mResourceNodes;
-
-    // NOTE: We're guaranteed that fromHandle's resource is unique (i.e. it's the only handle that
-    //       references this resource -- this is because FrameGraphRenderTarget can't be
-    //       written to).
-
-    // TODO: 'toHandle' cannot be sampleable if the rendertarget is imported. If it's not imported,
-    //       the corresponding attachment must be sampleable.
-
-    // TODO: 'toHandle' must be replaced by the corresponding resource (or dummy if imported).
-    //       so it's not devirtualized
-
-    // TODO: check that 'from.resource' at least has the same attachments than 'cur.resource' needs
-
-    auto hasAttachment = [&](RenderTargetResourceEntry const* rt, ResourceEntryBase const* r) {
-        for (auto h : rt->descriptor.attachments.textures) {
-            if (h.isValid() && resourceNodes[h.getHandle().index]->resource == r) {
-                return true;
-            }
-        }
-        return false;
-    };
-
-    // find all ResourceNode of type RenderTargetResource that have 'to' as attachment and replace
-    // them with the 'from' ResourceNode
-    for (auto& cur : resourceNodes) {
-        auto *p = cur->resource->asRenderTargetResourceEntry();
-        if (p) {
-            if (hasAttachment(p, to.resource)) {
-                cur = &from;
-            }
-        }
-    }
-}
-
-void FrameGraph::present(FrameGraphHandle input) {
-    addPass<Empty>("Present",
-            [&](Builder& builder, auto& data) {
-                builder.readImpl(input);
-                builder.sideEffect();
-            }, [](FrameGraphPassResources const& resources, auto const& data, DriverApi&) {});
-}
-
-PassNode& FrameGraph::createPass(const char* name, FrameGraphPassExecutor* base) noexcept {
-    auto& frameGraphPasses = mPassNodes;
-    const uint32_t id = (uint32_t)frameGraphPasses.size();
-    frameGraphPasses.emplace_back(*this, name, id, base);
-    return frameGraphPasses.back();
-}
-
-FrameGraphHandle FrameGraph::create(fg::ResourceEntryBase* pResourceEntry) noexcept {
-    mResourceEntries.emplace_back(pResourceEntry, *this);
-    return createResourceNode(pResourceEntry);
-}
-
-ResourceNode& FrameGraph::getResourceNodeUnchecked(FrameGraphHandle r) {
-    auto& resourceNodes = mResourceNodes;
-    assert(r.index < resourceNodes.size());
-    ResourceNode& node = *resourceNodes[r.index];
-    assert(node.resource);
-    return node;
-}
-
-ResourceNode& FrameGraph::getResourceNode(FrameGraphHandle r) {
-    ASSERT_POSTCONDITION(r.isValid(), "using an uninitialized resource handle");
-    ResourceNode& node = getResourceNodeUnchecked(r);
-    ASSERT_POSTCONDITION(node.resource->version == node.version,
-            "using an invalid resource handle (version=%u) for resource=\"%s\" (id=%u, version=%u)",
-            node.resource->version, node.resource->name, node.resource->id, node.version);
-
-    return node;
-}
-
-fg::ResourceEntryBase& FrameGraph::getResourceEntryBase(FrameGraphHandle r) noexcept {
-    ResourceNode& node = getResourceNode(r);
-    assert(node.resource);
-    return *node.resource;
-}
-
-fg::ResourceEntryBase& FrameGraph::getResourceEntryBaseUnchecked(FrameGraphHandle r) noexcept {
-    ResourceNode& node = getResourceNodeUnchecked(r);
-    assert(node.resource);
-    return *node.resource;
+void FrameGraph::reset() noexcept {
+    destroyInternal();
+    mPassNodes.clear();
+    mResourceNodes.clear();
+    mResources.clear();
+    mResourceSlots.clear();
 }
 
 FrameGraph& FrameGraph::compile() noexcept {
-    Vector<fg::PassNode>& passNodes = mPassNodes;
-    Vector<ResourceNode*>& resourceNodes = mResourceNodes;
-    Vector<UniquePtr<fg::ResourceEntryBase>>& resourceRegistry = mResourceEntries;
+
+    SYSTRACE_CALL();
+
+    DependencyGraph& dependencyGraph = mGraph;
+
+    // first we cull unreachable nodes
+    dependencyGraph.cull();
 
     /*
-     * compute passes and resource reference counts
-     */
-
-    for (PassNode& pass : passNodes) {
-        // compute passes reference counts (i.e. resources we're writing to)
-        pass.refCount = (uint32_t)pass.writes.size() + (uint32_t)pass.hasSideEffect;
-
-        // compute resources reference counts (i.e. resources we're reading from)
-        for (FrameGraphHandle resource : pass.reads) {
-            assert(resource.isValid());
-            // add a reference for each pass that reads from this resource
-            resourceNodes[resource.index]->readerCount++;
-        }
-
-        // set the writers
-        for (FrameGraphHandle resource : pass.writes) {
-            assert(resource.isValid());
-            resourceNodes[resource.index]->writer = &pass;
-        }
-    }
-
-    /*
-     * cull passes and resources...
-     */
-
-    Vector<ResourceNode*> stack(mArena);
-    stack.reserve(resourceNodes.size());
-    for (ResourceNode* node : resourceNodes) {
-        if (node->readerCount == 0) {
-            stack.push_back(node);
-        }
-    }
-    while (!stack.empty()) {
-        ResourceNode const* const pNode = stack.back();
-        stack.pop_back();
-        PassNode* const writer = pNode->writer;
-        if (writer) {
-            assert(writer->refCount >= 1);
-            if (--writer->refCount == 0) {
-                // this pass is culled
-                assert(!writer->hasSideEffect);
-                auto const& reads = writer->reads;
-                for (FrameGraphHandle resource : reads) {
-                    ResourceNode& r = *resourceNodes[resource.index];
-                    if (--r.readerCount == 0) {
-                        stack.push_back(&r);
-                    }
-                }
-            }
-        }
-    }
-    // update the final reference counts
-    for (ResourceNode const* node : resourceNodes) {
-        node->resource->refs += node->readerCount;
-    }
-
-    /*
+     * update the reference counter of the resource themselves and
      * compute first/last users for active passes
      */
 
-    for (PassNode& pass : passNodes) {
-        if (!pass.refCount) {
-            continue;
-        }
-        for (FrameGraphHandle resource : pass.reads) {
-            VirtualResource* const pResource = resourceNodes[resource.index]->resource;
-            // figure out which is the first pass to need this resource
-            pResource->first = pResource->first ? pResource->first : &pass;
-            // figure out which is the last pass to need this resource
-            pResource->last = &pass;
-        }
-        for (FrameGraphHandle resource : pass.writes) {
-            VirtualResource* const pResource = resourceNodes[resource.index]->resource;
-            // figure out which is the first pass to need this resource
-            pResource->first = pResource->first ? pResource->first : &pass;
-            // figure out which is the last pass to need this resource
-            pResource->last = &pass;
-        }
-    }
+    mActivePassNodesEnd = std::stable_partition(
+            mPassNodes.begin(), mPassNodes.end(), [](auto const& pPassNode) {
+        return !pPassNode->isCulled();
+    });
 
-    // update the SAMPLEABLE bit, now that we culled unneeded passes
-    for (PassNode& pass : passNodes) {
-        if (pass.refCount) {
-            for (auto handle : pass.samples) {
-                auto& texture = getResourceEntryUnchecked(handle);
-                texture.descriptor.usage |= backend::TextureUsage::SAMPLEABLE;
-            }
-        }
-    }
+    auto first = mPassNodes.begin();
+    const auto activePassNodesEnd = mActivePassNodesEnd;
+    while (first != activePassNodesEnd) {
+        PassNode* const passNode = *first;
+        first++;
+        assert_invariant(!passNode->isCulled());
 
-    for (UniquePtr<fg::ResourceEntryBase> const& resource : resourceRegistry) {
-        if (resource->refs) {
-            resource->resolve(*this);
+
+        auto const& reads = dependencyGraph.getIncomingEdges(passNode);
+        for (auto const& edge : reads) {
+            // all incoming edges should be valid by construction
+            assert_invariant(dependencyGraph.isEdgeValid(edge));
+            auto pNode = static_cast<ResourceNode*>(dependencyGraph.getNode(edge->from));
+            passNode->registerResource(pNode->resourceHandle);
         }
+
+        auto const& writes = dependencyGraph.getOutgoingEdges(passNode);
+        for (auto const& edge : writes) {
+            // An outgoing edge might be invalid if the node it points to has been culled
+            // but because we are not culled, and we're a pass we add a reference to
+            // the resource we are writing to.
+            auto pNode = static_cast<ResourceNode*>(dependencyGraph.getNode(edge->to));
+            passNode->registerResource(pNode->resourceHandle);
+        }
+
+        passNode->resolve();
     }
 
     // add resource to de-virtualize or destroy to the corresponding list for each active pass
-    // but add them in priority order (this is so that rendertargets are added after textures)
-    for (size_t priority = 0; priority < 2; priority++) {
-        for (UniquePtr<fg::ResourceEntryBase> const& resource : resourceRegistry) {
-            if (resource->priority == priority && resource->refs) {
-                auto *pFirst = resource->first;
-                auto *pLast = resource->last;
-                assert(!pFirst == !pLast);
-                if (pFirst && pLast) {
-                    pFirst->devirtualize.push_back(resource.get());
-                    pLast->destroy.push_back(resource.get());
-                }
+    for (auto* pResource : mResources) {
+        VirtualResource* resource = pResource;
+        if (resource->refcount) {
+            PassNode* pFirst = resource->first;
+            PassNode* pLast = resource->last;
+            assert_invariant(!pFirst == !pLast);
+            if (pFirst && pLast) {
+                assert_invariant(!pFirst->isCulled());
+                assert_invariant(!pLast->isCulled());
+                pFirst->devirtualize.push_back(resource);
+                pLast->destroy.push_back(resource);
             }
         }
+    }
+
+    /*
+     * Resolve Usage bits
+     */
+    for (auto& pNode : mResourceNodes) {
+        // we can't use isCulled() here because some culled resource are still active
+        // we could use "getResource(pNode->resourceHandle)->refcount" but that's expensive.
+        // We also can't remove or reorder this array, as handles are indices to it.
+        // We might need to build an array of indices to active resources.
+        pNode->resolveResourceUsage(dependencyGraph);
     }
 
     return *this;
 }
 
-void FrameGraph::executeInternal(PassNode const& node, DriverApi& driver) noexcept {
-    assert(node.base);
-    // create concrete resources and rendertargets
-    for (VirtualResource* resource : node.devirtualize) {
-        resource->preExecuteDevirtualize(*this);
-    }
-    // the destroy list is ran backward, so that objects are destroyed in reverse order
-    std::for_each(node.destroy.rbegin(), node.destroy.rend(), [this](auto* resource){
-        resource->preExecuteDestroy(*this);
-    });
+void FrameGraph::execute(backend::DriverApi& driver) noexcept {
 
-    // update the RenderTarget discard flags
-    for (auto handle : node.renderTargets) {
-        // here we're guaranteed we have a RenderTargetResourceEntry&
-        auto& entry = getResourceEntryUnchecked<FrameGraphRenderTarget>(handle);
-        static_cast<RenderTargetResourceEntry&>(entry).update(*this, node);
-    }
+    SYSTRACE_CALL();
 
-    // execute the pass
-    FrameGraphPassResources resources(*this, node);
-    node.base->execute(resources, driver);
-
-    for (VirtualResource* resource : node.devirtualize) {
-        resource->postExecuteDevirtualize(*this);
-    };
-
-    // destroy concrete resources
-    // the destroy list is ran backward, so that objects are destroyed in reverse order
-    std::for_each(node.destroy.rbegin(), node.destroy.rend(), [this](auto* resource){
-        resource->postExecuteDestroy(*this);
-    });
-}
-
-void FrameGraph::reset() noexcept {
-    // reset the frame graph state
-    mPassNodes.clear();
-    mResourceNodes.clear();
-    mResourceNodeEntries.clear();
-    mResourceEntries.clear();
-    mId = 0;
-}
-
-void FrameGraph::execute(FEngine& engine, DriverApi& driver) noexcept {
     auto const& passNodes = mPassNodes;
+    auto& resourceAllocator = mResourceAllocator;
+
     driver.pushGroupMarker("FrameGraph");
-    for (PassNode const& node : passNodes) {
-        if (node.refCount) {
-            driver.pushGroupMarker(node.name);
-            executeInternal(node, driver);
-            driver.popGroupMarker();
+
+    auto first = passNodes.begin();
+    const auto activePassNodesEnd = mActivePassNodesEnd;
+    while (first != activePassNodesEnd) {
+        PassNode* const node = *first;
+        first++;
+        assert_invariant(!node->isCulled());
+
+        SYSTRACE_NAME(node->getName());
+
+        driver.pushGroupMarker(node->getName());
+
+        // devirtualize resourcesList
+        for (VirtualResource* resource : node->devirtualize) {
+            assert_invariant(resource->first == node);
+            resource->devirtualize(resourceAllocator);
         }
+
+        // call execute
+        FrameGraphResources resources(*this, *node);
+        node->execute(resources, driver);
+
+        // destroy concrete resources
+        for (VirtualResource* resource : node->destroy) {
+            assert_invariant(resource->last == node);
+            resource->destroy(resourceAllocator);
+        }
+
+        driver.popGroupMarker();
     }
-    // this is a good place to kick the GPU, since we've just done a bunch of work
-    driver.flush();
     driver.popGroupMarker();
-    reset();
 }
 
-void FrameGraph::execute(DriverApi& driver) noexcept {
-    for (PassNode const& node : mPassNodes) {
-        if (node.refCount) {
-            executeInternal(node, driver);
-        }
-    }
-    // this is a good place to kick the GPU, since we've just done a bunch of work
-    driver.flush();
-    reset();
+void FrameGraph::addPresentPass(const std::function<void(FrameGraph::Builder&)>& setup) noexcept {
+    PresentPassNode* node = mArena.make<PresentPassNode>(*this);
+    mPassNodes.push_back(node);
+    Builder builder(*this, node);
+    setup(builder);
+    builder.sideEffect();
 }
 
-void FrameGraph::export_graphviz(utils::io::ostream& out, const char* viewName) {
-#ifndef NDEBUG
-    const char* label = viewName ? viewName : "anonymousView";
-    out << "digraph \"" << label << "\" {\n";
-    out << "rankdir = LR\n";
-    out << "bgcolor = black\n";
-    out << "node [shape=rectangle, fontname=\"helvetica\", fontsize=10]\n\n";
-
-    auto const& registry = mResourceNodes;
-    auto const& frameGraphPasses = mPassNodes;
-
-    // declare passes
-    for (PassNode const& node : frameGraphPasses) {
-        out << "\"P" << node.id << "\" [label=\"" << node.name
-               << "\\nrefs: " << node.refCount
-               << "\\nseq: " << node.id
-               << "\", style=filled, fillcolor="
-               << (node.refCount ? "darkorange" : "darkorange4") << "]\n";
-    }
-
-    // declare resources nodes
-    out << "\n";
-    for (ResourceNode const* node : registry) {
-        ResourceEntryBase* subresource = node->resource;
-
-        out << "\"R" << node->resource->id << "_" << +node->version << "\""
-            "[label=\"" << node->resource->name << "\\n(version: " << +node->version << ")"
-            "\\nid:" << node->resource->id <<
-            "\\nrefs:" << node->resource->refs;
-
-#if UTILS_HAS_RTTI
-        const auto *textureResource = dynamic_cast<ResourceEntry<FrameGraphTexture> const*>(subresource);
-        if (textureResource) {
-            out << ", " << (bool(textureResource->descriptor.usage & TextureUsage::SAMPLEABLE) ? "texture" : "renderbuffer");
-            out << "\\n" << textureResource->descriptor.width << "x" << textureResource->descriptor.height;
-            if (bool(textureResource->descriptor.usage & TextureUsage::SUBPASS_INPUT)) {
-                out << " SI";
-            }
-            if (textureResource->descriptor.samples > 1) {
-                out << " MS";
-            }
-        }
-#endif
-        auto *rendertarget = subresource->asRenderTargetResourceEntry();
-        if (rendertarget) {
-            out << ", " << "RenderTarget";
-            if (rendertarget->descriptor.samples > 1) {
-                out << " MS";
-            }
-        }
-        out << "\", style=filled, fillcolor="
-            << ((subresource->imported) ?
-                (node->resource->refs ? "palegreen" : "palegreen4") :
-                (node->resource->refs ? "skyblue" : "skyblue4"))
-            << "]\n";
-    }
-
-    // connect passes to resources
-    out << "\n";
-    for (auto const& node : frameGraphPasses) {
-        out << "P" << node.id << " -> { ";
-        for (auto const& writer : node.writes) {
-            out << "R" << registry[writer.index]->resource->id << "_" << +registry[writer.index]->version << " ";
-            out << "R" << registry[writer.index]->resource->id << "_" << +registry[writer.index]->version << " ";
-        }
-        out << "} [color=red2]\n";
-    }
-
-    // connect resources to passes
-    out << "\n";
-    for (ResourceNode const* node : registry) {
-        out << "R" << node->resource->id << "_" << +node->version << " -> { ";
-
-        // who reads us...
-        for (PassNode const& pass : frameGraphPasses) {
-            for (FrameGraphHandle const& read : pass.reads) {
-                if (registry[read.index]->resource->id == node->resource->id &&
-                    registry[read.index]->version == node->version) {
-                    out << "P" << pass.id << " ";
-                }
-            }
-        }
-        out << "} [color=lightgreen]\n";
-    }
-
-    out << "}" << utils::io::endl;
-#endif
+FrameGraph::Builder FrameGraph::addPassInternal(char const* name, FrameGraphPassBase* base) noexcept {
+    // record in our pass list and create the builder
+    PassNode* node = mArena.make<RenderPassNode>(*this, name, base);
+    base->setNode(node);
+    mPassNodes.push_back(node);
+    return { *this, node };
 }
 
-// avoid creating a .o just for these
-FrameGraphPassExecutor::FrameGraphPassExecutor() = default;
-FrameGraphPassExecutor::~FrameGraphPassExecutor() = default;
+FrameGraphHandle FrameGraph::createNewVersion(FrameGraphHandle handle) noexcept {
+    assert_invariant(handle);
+    ResourceNode* const node = getActiveResourceNode(handle);
+    assert_invariant(node);
+    FrameGraphHandle const parent = node->getParentHandle();
+    ResourceSlot& slot = getResourceSlot(handle);
+    slot.version = ++handle.version;    // increase the parent's version
+    slot.nid = (ResourceSlot::Index)mResourceNodes.size();   // create the new parent node
+    ResourceNode* newNode = mArena.make<ResourceNode>(*this, handle, parent);
+    mResourceNodes.push_back(newNode);
+    return handle;
+}
+
+ResourceNode* FrameGraph::createNewVersionForSubresourceIfNeeded(ResourceNode* node) noexcept {
+    ResourceSlot& slot = getResourceSlot(node->resourceHandle);
+    if (slot.sid < 0) {
+        // if we don't already have a new ResourceNode for this resource, create one.
+        // we keep the old ResourceNode index, so we can direct all the reads to it.
+        slot.sid = slot.nid; // record the current ResourceNode of the parent
+        slot.nid = (ResourceSlot::Index)mResourceNodes.size();   // create the new parent node
+        node = mArena.make<ResourceNode>(*this, node->resourceHandle, node->getParentHandle());
+        mResourceNodes.push_back(node);
+    }
+    return node;
+}
+
+FrameGraphHandle FrameGraph::addResourceInternal(VirtualResource* resource) noexcept {
+    return addSubResourceInternal(FrameGraphHandle{}, resource);
+}
+
+FrameGraphHandle FrameGraph::addSubResourceInternal(FrameGraphHandle parent,
+        VirtualResource* resource) noexcept {
+    FrameGraphHandle const handle(mResourceSlots.size());
+    ResourceSlot& slot = mResourceSlots.emplace_back();
+    slot.rid = (ResourceSlot::Index)mResources.size();
+    slot.nid = (ResourceSlot::Index)mResourceNodes.size();
+    mResources.push_back(resource);
+    ResourceNode* pNode = mArena.make<ResourceNode>(*this, handle, parent);
+    mResourceNodes.push_back(pNode);
+    return handle;
+}
+
+FrameGraphHandle FrameGraph::readInternal(FrameGraphHandle handle, PassNode* passNode,
+        const std::function<bool(ResourceNode*, VirtualResource*)>& connect) {
+
+    assertValid(handle);
+
+    VirtualResource* const resource = getResource(handle);
+    ResourceNode* const node = getActiveResourceNode(handle);
+
+    // Check preconditions
+    bool const passAlreadyAWriter = node->hasWriteFrom(passNode);
+    ASSERT_PRECONDITION(!passAlreadyAWriter,
+            "Pass \"%s\" already writes to \"%s\"",
+            passNode->getName(), node->getName());
+
+    if (!node->hasWriterPass() && !resource->isImported()) {
+        // TODO: we're attempting to read from a resource that was never written and is not
+        //       imported either, so it can't have valid data in it.
+        //       Should this be an error?
+    }
+
+    // Connect can fail if usage flags are incorrectly used
+    if (connect(node, resource)) {
+        if (resource->isSubResource()) {
+            // this is a read() from a subresource, so we need to add a "read" from the parent's
+            // node to the subresource -- but we may have two parent nodes, one for reads and
+            // one for writes, so we need to use the one for reads.
+            auto* parentNode = node->getParentNode();
+            ResourceSlot const& slot = getResourceSlot(parentNode->resourceHandle);
+            if (slot.sid >= 0) {
+                // we have a parent's node for reads, use that one
+                parentNode = mResourceNodes[slot.sid];
+            }
+            node->setParentReadDependency(parentNode);
+        } else {
+            // we're reading from a top-level resource (i.e. not a subresource), but this
+            // resource is a parent of some subresource, and it might exist as a version for
+            // writing, in this case we need to add a dependency from its "read" version to
+            // itself.
+            ResourceSlot const& slot = getResourceSlot(handle);
+            if (slot.sid >= 0) {
+                node->setParentReadDependency(mResourceNodes[slot.sid]);
+            }
+        }
+
+        // if a resource has a subresource, then its handle becomes valid again as soon as it's used.
+        ResourceSlot& slot = getResourceSlot(handle);
+        if (slot.sid >= 0) {
+            // we can now forget the "read" parent node, which becomes the current one again
+            // until the next write.
+            slot.sid = -1;
+        }
+
+        return handle;
+    }
+
+    return {};
+}
+
+FrameGraphHandle FrameGraph::writeInternal(FrameGraphHandle handle, PassNode* passNode,
+        const std::function<bool(ResourceNode*, VirtualResource*)>& connect) {
+
+    assertValid(handle);
+
+    VirtualResource* const resource = getResource(handle);
+    ResourceNode* node = getActiveResourceNode(handle);
+    ResourceNode* parentNode = node->getParentNode();
+
+    // if we're writing into a subresource, we also need to add a "write" from the subresource
+    // node to a new version of the parent's node, if we don't already have one.
+    if (resource->isSubResource()) {
+        assert_invariant(parentNode);
+        // this could be a subresource from a subresource, and in this case, we want the oldest
+        // ancestor, that is, the node that started it all.
+        parentNode = ResourceNode::getAncestorNode(parentNode);
+        // FIXME: do we need the equivalent of hasWriterPass() test below
+        parentNode = createNewVersionForSubresourceIfNeeded(parentNode);
+    }
+
+    // if this node already writes to this resource, just update the used bits
+    if (!node->hasWriteFrom(passNode)) {
+        if (!node->hasWriterPass() && !node->hasReaders()) {
+            // FIXME: should this also take subresource writes into account
+            // if we don't already have a writer or a reader, it just means the resource was just created
+            // and was never written to, so we don't need a new node or increase the version number
+        } else {
+            handle = createNewVersion(handle);
+            // refresh the node
+            node = getActiveResourceNode(handle);
+        }
+    }
+
+    if (connect(node, resource)) {
+        if (resource->isSubResource()) {
+            node->setParentWriteDependency(parentNode);
+        }
+        if (resource->isImported()) {
+            // writing to an imported resource implies a side-effect
+            passNode->makeTarget();
+        }
+        return handle;
+    } else {
+        // FIXME: we need to undo everything we did to this point
+    }
+
+    return {};
+}
+
+FrameGraphHandle FrameGraph::forwardResourceInternal(FrameGraphHandle resourceHandle,
+        FrameGraphHandle replaceResourceHandle) {
+
+    assertValid(resourceHandle);
+
+    assertValid(replaceResourceHandle);
+
+    ResourceSlot& replacedResourceSlot = getResourceSlot(replaceResourceHandle);
+    ResourceNode* const replacedResourceNode = getActiveResourceNode(replaceResourceHandle);
+
+    ResourceSlot const& resourceSlot = getResourceSlot(resourceHandle);
+    ResourceNode* const resourceNode = getActiveResourceNode(resourceHandle);
+    VirtualResource* const resource = getResource(resourceHandle);
+
+    replacedResourceNode->setForwardResourceDependency(resourceNode);
+
+    if (resource->isSubResource() && replacedResourceNode->hasWriterPass()) {
+        // if the replaced resource is written to and replaced by a subresource -- meaning
+        // that now it's that subresource that is being written to, we need to add a
+        // write-dependency from this subresource to its parent node (which effectively is
+        // being written as well). This would normally happen during write(), but here
+        // the write has already happened.
+        // We create a new version of the parent node to ensure nobody writes into it beyond
+        // this point (note: it's not completely clear to me if this is needed/correct).
+        ResourceNode* parentNode = ResourceNode::getAncestorNode(resourceNode);
+        parentNode = createNewVersionForSubresourceIfNeeded(parentNode);
+        resourceNode->setParentWriteDependency(parentNode);
+    }
+
+    replacedResourceSlot.rid = resourceSlot.rid;
+    // nid is unchanged, because we keep our node which has the graph information
+    // FIXME: what should happen with .sid?
+
+    // makes the replaceResourceHandle forever invalid
+    replacedResourceSlot.version = -1;
+
+    return resourceHandle;
+}
+
+FrameGraphId<FrameGraphTexture> FrameGraph::import(char const* name,
+        FrameGraphRenderPass::ImportDescriptor const& desc,
+        backend::Handle<backend::HwRenderTarget> target) {
+    // create a resource that represents the imported render target
+    VirtualResource* vresource =
+            mArena.make<ImportedRenderTarget>(name,
+                    FrameGraphTexture::Descriptor{
+                            .width = desc.viewport.width,
+                            .height = desc.viewport.height
+                    }, desc, target);
+    return FrameGraphId<FrameGraphTexture>(addResourceInternal(vresource));
+}
+
+bool FrameGraph::isValid(FrameGraphHandle handle) const {
+    // Code below is written this way so that we can set breakpoints easily.
+    if (!handle.isInitialized()) {
+        return false;
+    }
+    ResourceSlot const& slot = getResourceSlot(handle);
+    if (handle.version != slot.version) {
+        return false;
+    }
+    return true;
+}
+
+void FrameGraph::assertValid(FrameGraphHandle handle) const {
+    ASSERT_PRECONDITION(isValid(handle),
+            "Resource handle is invalid or uninitialized {id=%u, version=%u}",
+            (int)handle.index, (int)handle.version);
+}
+
+bool FrameGraph::isCulled(FrameGraphPassBase const& pass) const noexcept {
+    return pass.getNode().isCulled();
+}
+
+bool FrameGraph::isAcyclic() const noexcept {
+    return mGraph.isAcyclic();
+}
+
+void FrameGraph::export_graphviz(utils::io::ostream& out, char const* name) {
+    mGraph.export_graphviz(out, name);
+}
+
+// ------------------------------------------------------------------------------------------------
+
+/*
+ * Explicit template instantiation for FrameGraphTexture which is a known type,
+ * to reduce compile time and code size.
+ */
+
+template void FrameGraph::present(FrameGraphId<FrameGraphTexture> input);
+
+template FrameGraphId<FrameGraphTexture> FrameGraph::create(char const* name,
+        FrameGraphTexture::Descriptor const& desc) noexcept;
+
+template FrameGraphId<FrameGraphTexture> FrameGraph::createSubresource(FrameGraphId<FrameGraphTexture> parent,
+        char const* name, FrameGraphTexture::SubResourceDescriptor const& desc) noexcept;
+
+template FrameGraphId<FrameGraphTexture> FrameGraph::import(char const* name,
+        FrameGraphTexture::Descriptor const& desc, FrameGraphTexture::Usage usage, FrameGraphTexture const& resource) noexcept;
+
+template FrameGraphId<FrameGraphTexture> FrameGraph::read(PassNode* passNode,
+        FrameGraphId<FrameGraphTexture> input, FrameGraphTexture::Usage usage);
+
+template FrameGraphId<FrameGraphTexture> FrameGraph::write(PassNode* passNode,
+        FrameGraphId<FrameGraphTexture> input, FrameGraphTexture::Usage usage);
+
+template FrameGraphId<FrameGraphTexture> FrameGraph::forwardResource(
+        FrameGraphId<FrameGraphTexture> resource, FrameGraphId<FrameGraphTexture> replacedResource);
 
 } // namespace filament

@@ -36,7 +36,22 @@ import java.util.Set;
  *
  * @see <a href="https://google.github.io/filament/Materials.html">Filament Materials Guide</a>
  */
+@UsedByNative("AssetLoader.cpp")
 public class Material {
+    static final class EnumCache {
+        private EnumCache() { }
+
+        static final Shading[] sShadingValues = Shading.values();
+        static final Interpolation[] sInterpolationValues = Interpolation.values();
+        static final BlendingMode[] sBlendingModeValues = BlendingMode.values();
+        static final RefractionMode[] sRefractionModeValues = RefractionMode.values();
+        static final RefractionType[] sRefractionTypeValues = RefractionType.values();
+        static final VertexDomain[] sVertexDomainValues = VertexDomain.values();
+        static final CullingMode[] sCullingModeValues = CullingMode.values();
+        static final VertexBuffer.VertexAttribute[] sVertexAttributeValues =
+                VertexBuffer.VertexAttribute.values();
+    }
+
     private long mNativeObject;
     private final MaterialInstance mDefaultInstance;
 
@@ -210,6 +225,8 @@ public class Material {
 
     @UsedByNative("Material.cpp")
     public static class Parameter {
+        private static final Type[] sTypeValues = Type.values();
+
         public enum Type {
             BOOL,
             BOOL2,
@@ -233,7 +250,8 @@ public class Material {
             SAMPLER_2D_ARRAY,
             SAMPLER_CUBEMAP,
             SAMPLER_EXTERNAL,
-            SAMPLER_3D
+            SAMPLER_3D,
+            SUBPASS_INPUT
         }
 
         public enum Precision {
@@ -246,6 +264,10 @@ public class Material {
         @SuppressWarnings("unused")
         @UsedByNative("Material.cpp")
         private static final int SAMPLER_OFFSET = Type.MAT4.ordinal() + 1;
+
+        @SuppressWarnings("unused")
+        @UsedByNative("Material.cpp")
+        private static final int SUBPASS_OFFSET = Type.SAMPLER_3D.ordinal() + 1;
 
         @NonNull
         public final String name;
@@ -270,11 +292,11 @@ public class Material {
                 @IntRange(from = 0) int type, @IntRange(from = 0) int precision,
                 @IntRange(from = 1) int count) {
             parameters.add(
-                    new Parameter(name, Type.values()[type], Precision.values()[precision], count));
+                    new Parameter(name, sTypeValues[type], Precision.values()[precision], count));
         }
     }
 
-    Material(long nativeMaterial) {
+    public Material(long nativeMaterial) {
         mNativeObject = nativeMaterial;
         long nativeDefaultInstance = nGetDefaultInstance(nativeMaterial);
         mDefaultInstance = new MaterialInstance(this, nativeDefaultInstance);
@@ -368,7 +390,7 @@ public class Material {
      * Material Models</a>
      */
     public Shading getShading() {
-        return Shading.values()[nGetShading(getNativeObject())];
+        return EnumCache.sShadingValues[nGetShading(getNativeObject())];
     }
 
     /**
@@ -379,7 +401,7 @@ public class Material {
      * Vertex and attributes: interpolation</a>
      */
     public Interpolation getInterpolation() {
-        return Interpolation.values()[nGetInterpolation(getNativeObject())];
+        return EnumCache.sInterpolationValues[nGetInterpolation(getNativeObject())];
     }
 
     /**
@@ -390,7 +412,7 @@ public class Material {
      * Blending and transparency: blending</a>
      */
     public BlendingMode getBlendingMode() {
-        return BlendingMode.values()[nGetBlendingMode(getNativeObject())];
+        return EnumCache.sBlendingModeValues[nGetBlendingMode(getNativeObject())];
     }
 
     /**
@@ -401,7 +423,7 @@ public class Material {
      * Blending and transparency: refraction</a>
      */
     public RefractionMode getRefractionMode() {
-        return RefractionMode.values()[nGetRefractionMode(getNativeObject())];
+        return EnumCache.sRefractionModeValues[nGetRefractionMode(getNativeObject())];
     }
 
     /**
@@ -412,9 +434,8 @@ public class Material {
      * Blending and transparency: refractionType</a>
      */
     public RefractionType getRefractionType() {
-        return RefractionType.values()[nGetRefractionType(getNativeObject())];
+        return EnumCache.sRefractionTypeValues[nGetRefractionType(getNativeObject())];
     }
-
 
     /**
      * Returns the vertex domain of this material.
@@ -424,7 +445,7 @@ public class Material {
      * Vertex and attributes: vertexDomain</a>
      */
     public VertexDomain getVertexDomain() {
-        return VertexDomain.values()[nGetVertexDomain(getNativeObject())];
+        return EnumCache.sVertexDomainValues[nGetVertexDomain(getNativeObject())];
     }
 
     /**
@@ -435,7 +456,7 @@ public class Material {
      * Rasterization: culling</a>
      */
     public CullingMode getCullingMode() {
-        return CullingMode.values()[nGetCullingMode(getNativeObject())];
+        return EnumCache.sCullingModeValues[nGetCullingMode(getNativeObject())];
     }
 
     /**
@@ -483,6 +504,17 @@ public class Material {
     }
 
     /**
+     * Indicates whether instances of this material will use alpha to coverage.
+     *
+     * @see
+     * <a href="https://google.github.io/filament/Materials.html#materialdefinitions/materialblock/rasterization:alphatocoverage">
+     * Rasterization: alphaToCoverage</a>
+     */
+    public boolean isAlphaToCoverageEnabled() {
+        return nIsAlphaToCoverageEnabled(getNativeObject());
+    }
+
+    /**
      * Returns the alpha mask threshold used when the blending mode is set to masked.
      *
      * @see
@@ -526,7 +558,7 @@ public class Material {
         if (mRequiredAttributes == null) {
             int bitSet = nGetRequiredAttributes(getNativeObject());
             mRequiredAttributes = EnumSet.noneOf(VertexBuffer.VertexAttribute.class);
-            VertexBuffer.VertexAttribute[] values = VertexBuffer.VertexAttribute.values();
+            VertexBuffer.VertexAttribute[] values = EnumCache.sVertexAttributeValues;
             for (int i = 0; i < values.length; i++) {
                 if ((bitSet & (1 << i)) != 0) {
                     mRequiredAttributes.add(values[i]);
@@ -755,18 +787,13 @@ public class Material {
      * @param name   name of the parameter array as defined by this Material
      * @param type   the number of components for each individual parameter
      * @param v      array of values to set to the named parameter array
-     * @param offset the number of elements to skip
+     * @param offset the number of elements in <code>v</code> to skip
      * @param count  the number of elements in the parameter array to set
      *
      * <p>For example, to set a parameter array of 4 bool4s:
      * <pre>{@code
      *     boolean[] a = new boolean[4 * 4];
      *     material.setDefaultParameter("param", MaterialInstance.BooleanElement.BOOL4, a, 0, 4);
-     * }</pre>
-     * To only set the last 3 elements, specify an offset of 1 and a count of 3:
-     * <pre>{@code
-     *     boolean[] a = new boolean[4 * 3];
-     *     material.setDefaultParameter("param", MaterialInstance.BooleanElement.BOOL4, a, 1, 3);
      * }</pre>
      * </p>
      *
@@ -784,18 +811,13 @@ public class Material {
      * @param name   name of the parameter array as defined by this Material
      * @param type   the number of components for each individual parameter
      * @param v      array of values to set to the named parameter array
-     * @param offset the number of elements to skip
+     * @param offset the number of elements in <code>v</code> to skip
      * @param count  the number of elements in the parameter array to set
      *
      * <p>For example, to set a parameter array of 4 int4s:
      * <pre>{@code
      *     int[] a = new int[4 * 4];
      *     material.setDefaultParameter("param", MaterialInstance.IntElement.INT4, a, 0, 4);
-     * }</pre>
-     * To only set the last 3 elements, specify an offset of 1 and a count of 3:
-     * <pre>{@code
-     *     int[] a = new int[4 * 3];
-     *     material.setDefaultParameter("param", MaterialInstance.IntElement.INT4, a, 1, 3);
      * }</pre>
      * </p>
      *
@@ -813,18 +835,13 @@ public class Material {
      * @param name   name of the parameter array as defined by this Material
      * @param type   the number of components for each individual parameter
      * @param v      array of values to set to the named parameter array
-     * @param offset the number of elements to skip
+     * @param offset the number of elements in <code>v</code> to skip
      * @param count  the number of elements in the parameter array to set
      *
      * <p>For example, to set a parameter array of 4 float4s:
      * <pre>{@code
      *     float[] a = new float[4 * 4];
      *     material.setDefaultParameter("param", MaterialInstance.FloatElement.FLOAT4, a, 0, 4);
-     * }</pre>
-     * To only set the last 3 elements, specify an offset of 1 and a count of 3:
-     * <pre>{@code
-     *     float[] a = new float[4 * 3];
-     *     material.setDefaultParameter("param", MaterialInstance.FloatElement.FLOAT4, a, 1, 3);
      * }</pre>
      * </p>
      *
@@ -909,6 +926,7 @@ public class Material {
     private static native boolean nIsDepthWriteEnabled(long nativeMaterial);
     private static native boolean nIsDepthCullingEnabled(long nativeMaterial);
     private static native boolean nIsDoubleSided(long nativeMaterial);
+    private static native boolean nIsAlphaToCoverageEnabled(long nativeMaterial);
     private static native float nGetMaskThreshold(long nativeMaterial);
     private static native float nGetSpecularAntiAliasingVariance(long nativeMaterial);
     private static native float nGetSpecularAntiAliasingThreshold(long nativeMaterial);

@@ -47,7 +47,7 @@ import com.google.android.filament.proguard.UsedByReflection;
  * <pre>
  * import com.google.android.filament.*
  *
- * Engin engine         = Engine.create();
+ * Engine engine        = Engine.create();
  * SwapChain swapChain  = engine.createSwapChain(nativeWindow);
  * Renderer renderer    = engine.createRenderer();
  * Scene scene          = engine.createScene();
@@ -106,10 +106,15 @@ import com.google.android.filament.proguard.UsedByReflection;
  * @see Renderer
  */
 public class Engine {
+    private static final Backend[] sBackendValues = Backend.values();
+    private static final FeatureLevel[] sFeatureLevelValues = FeatureLevel.values();
+
     private long mNativeObject;
+
     @NonNull private final TransformManager mTransformManager;
     @NonNull private final LightManager mLightManager;
     @NonNull private final RenderableManager mRenderableManager;
+    @NonNull private final EntityManager mEntityManager;
 
     /**
      * Denotes a backend
@@ -137,11 +142,24 @@ public class Engine {
         NOOP,
     }
 
+    /**
+     * Defines the backend's feature levels.
+     */
+    public enum FeatureLevel {
+        /** Reserved, don't use */
+        FEATURE_LEVEL_0,
+        /** OpenGL ES 3.0 features (default) */
+        FEATURE_LEVEL_1,
+        /** OpenGL ES 3.1 features + 31 textures units + cubemap arrays */
+        FEATURE_LEVEL_2
+    };
+
     private Engine(long nativeEngine) {
         mNativeObject = nativeEngine;
         mTransformManager = new TransformManager(nGetTransformManager(nativeEngine));
         mLightManager = new LightManager(nGetLightManager(nativeEngine));
         mRenderableManager = new RenderableManager(nGetRenderableManager(nativeEngine));
+        mEntityManager = new EntityManager(nGetEntityManager(nativeEngine));
     }
 
     /**
@@ -250,8 +268,90 @@ public class Engine {
      */
     @NonNull
     public Backend getBackend() {
-        return Backend.values()[(int) nGetBackend(getNativeObject())];
+        return sBackendValues[(int) nGetBackend(getNativeObject())];
     }
+
+    /**
+     * Helper to enable accurate translations.
+     * If you need this Engine to handle a very large world space, one way to achieve this
+     * automatically is to enable accurate translations in the TransformManager. This helper
+     * provides a convenient way of doing that.
+     * This is typically called once just after creating the Engine.
+     */
+    public void enableAccurateTranslations() {
+        getTransformManager().setAccurateTranslationsEnabled(true);
+    }
+
+    /**
+     * Query the feature level supported by the selected backend.
+     *
+     * A specific feature level needs to be set before the corresponding features can be used.
+     *
+     * @return FeatureLevel supported the selected backend.
+     * @see #setActiveFeatureLevel
+     */
+    @NonNull
+    public FeatureLevel getSupportedFeatureLevel() {
+        return sFeatureLevelValues[(int) nGetSupportedFeatureLevel(getNativeObject())];
+    }
+
+    /**
+     * Activate all features of a given feature level. By default FeatureLevel::FEATURE_LEVEL_1 is
+     * active. The selected feature level must not be higher than the value returned by
+     * getActiveFeatureLevel() and it's not possible lower the active feature level.
+     *
+     * @param featureLevel the feature level to activate. If featureLevel is lower than
+     *                     getActiveFeatureLevel(), the current (higher) feature level is kept.
+     *                     If featureLevel is higher than getSupportedFeatureLevel(), an exception
+     *                     is thrown, or the program is terminated if exceptions are disabled.
+     *
+     * @return the active feature level.
+     *
+     * @see #getSupportedFeatureLevel
+     * @see #getActiveFeatureLevel
+     */
+    @NonNull
+    public FeatureLevel setActiveFeatureLevel(@NonNull FeatureLevel featureLevel) {
+        return sFeatureLevelValues[(int) nSetActiveFeatureLevel(getNativeObject(), featureLevel.ordinal())];
+    }
+
+    /**
+     * Returns the currently active feature level.
+     * @return currently active feature level
+     * @see #getSupportedFeatureLevel
+     * @see #setActiveFeatureLevel
+     */
+    @NonNull
+    public FeatureLevel getActiveFeatureLevel() {
+        return sFeatureLevelValues[(int) nGetActiveFeatureLevel(getNativeObject())];
+    }
+
+    /**
+     * Enables or disables automatic instancing of render primitives. Instancing of render primitive
+     * can greatly reduce CPU overhead but requires the instanced primitives to be identical
+     * (i.e. use the same geometry) and use the same MaterialInstance. If it is known that the
+     * scene doesn't contain any identical primitives, automatic instancing can have some
+     * overhead and it is then best to disable it.
+     *
+     * Disabled by default.
+     *
+     * @param enable true to enable, false to disable automatic instancing.
+     *
+     * @see RenderableManager
+     * @see MaterialInstance
+     */
+    public void setAutomaticInstancingEnabled(boolean enable) {
+        nSetAutomaticInstancingEnabled(getNativeObject(), enable);
+    }
+
+    /**
+     * @return true if automatic instancing is enabled, false otherwise.
+     * @see #setAutomaticInstancingEnabled
+     */
+    public boolean isAutomaticInstancingEnabled() {
+        return nIsAutomaticInstancingEnabled(getNativeObject());
+    }
+
 
     // SwapChain
 
@@ -349,6 +449,141 @@ public class Engine {
         swapChain.clearNativeObject();
     }
 
+    /**
+     * Returns whether the object is valid.
+     * @param object Object to check for validity
+     * @return returns true if the specified object is valid.
+     */
+    public boolean isValidRenderer(@NonNull Renderer object) {
+        return nIsValidRenderer(getNativeObject(), object.getNativeObject());
+    }
+
+    /**
+     * Returns whether the object is valid.
+     * @param object Object to check for validity
+     * @return returns true if the specified object is valid.
+     */
+    public boolean isValidView(@NonNull View object) {
+        return nIsValidView(getNativeObject(), object.getNativeObject());
+    }
+
+    /**
+     * Returns whether the object is valid.
+     * @param object Object to check for validity
+     * @return returns true if the specified object is valid.
+     */
+    public boolean isValidScene(@NonNull Scene object) {
+        return nIsValidScene(getNativeObject(), object.getNativeObject());
+    }
+
+    /**
+     * Returns whether the object is valid.
+     * @param object Object to check for validity
+     * @return returns true if the specified object is valid.
+     */
+    public boolean isValidFence(@NonNull Fence object) {
+        return nIsValidFence(getNativeObject(), object.getNativeObject());
+    }
+
+    /**
+     * Returns whether the object is valid.
+     * @param object Object to check for validity
+     * @return returns true if the specified object is valid.
+     */
+    public boolean isValidStream(@NonNull Stream object) {
+        return nIsValidStream(getNativeObject(), object.getNativeObject());
+    }
+
+    /**
+     * Returns whether the object is valid.
+     * @param object Object to check for validity
+     * @return returns true if the specified object is valid.
+     */
+    public boolean isValidIndexBuffer(@NonNull IndexBuffer object) {
+        return nIsValidIndexBuffer(getNativeObject(), object.getNativeObject());
+    }
+
+    /**
+     * Returns whether the object is valid.
+     * @param object Object to check for validity
+     * @return returns true if the specified object is valid.
+     */
+    public boolean isValidVertexBuffer(@NonNull VertexBuffer object) {
+        return nIsValidVertexBuffer(getNativeObject(), object.getNativeObject());
+    }
+
+    /**
+     * Returns whether the object is valid.
+     * @param object Object to check for validity
+     * @return returns true if the specified object is valid.
+     */
+    public boolean isValidSkinningBuffer(@NonNull SkinningBuffer object) {
+        return nIsValidSkinningBuffer(getNativeObject(), object.getNativeObject());
+    }
+
+    /**
+     * Returns whether the object is valid.
+     * @param object Object to check for validity
+     * @return returns true if the specified object is valid.
+     */
+    public boolean isValidIndirectLight(@NonNull IndirectLight object) {
+        return nIsValidIndirectLight(getNativeObject(), object.getNativeObject());
+    }
+
+    /**
+     * Returns whether the object is valid.
+     * @param object Object to check for validity
+     * @return returns true if the specified object is valid.
+     */
+    public boolean isValidMaterial(@NonNull Material object) {
+        return nIsValidMaterial(getNativeObject(), object.getNativeObject());
+    }
+
+    /**
+     * Returns whether the object is valid.
+     * @param object Object to check for validity
+     * @return returns true if the specified object is valid.
+     */
+    public boolean isValidSkybox(@NonNull Skybox object) {
+        return nIsValidSkybox(getNativeObject(), object.getNativeObject());
+    }
+
+    /**
+     * Returns whether the object is valid.
+     * @param object Object to check for validity
+     * @return returns true if the specified object is valid.
+     */
+    public boolean isValidColorGrading(@NonNull ColorGrading object) {
+        return nIsValidColorGrading(getNativeObject(), object.getNativeObject());
+    }
+
+    /**
+     * Returns whether the object is valid.
+     * @param object Object to check for validity
+     * @return returns true if the specified object is valid.
+     */
+    public boolean isValidTexture(@NonNull Texture object) {
+        return nIsValidTexture(getNativeObject(), object.getNativeObject());
+    }
+
+    /**
+     * Returns whether the object is valid.
+     * @param object Object to check for validity
+     * @return returns true if the specified object is valid.
+     */
+    public boolean isValidRenderTarget(@NonNull RenderTarget object) {
+        return nIsValidRenderTarget(getNativeObject(), object.getNativeObject());
+    }
+
+    /**
+     * Returns whether the object is valid.
+     * @param object Object to check for validity
+     * @return returns true if the specified object is valid.
+     */
+    public boolean isValidSwapChain(@NonNull SwapChain object) {
+        return nIsValidSwapChain(getNativeObject(), object.getNativeObject());
+    }
+
     // View
 
     /**
@@ -398,19 +633,6 @@ public class Engine {
     // Camera
 
     /**
-     * Creates a new <code>entity</code> and adds a {@link Camera} component to it.
-     *
-     * @return A newly created {@link Camera}
-     * @exception IllegalStateException can be thrown if the {@link Camera} couldn't be created
-     */
-    @NonNull
-    public Camera createCamera() {
-        long nativeCamera = nCreateCamera(getNativeObject());
-        if (nativeCamera == 0) throw new IllegalStateException("Couldn't create Camera");
-        return new Camera(nativeCamera);
-    }
-
-    /**
      * Creates and adds a {@link Camera} component to a given <code>entity</code>.
      *
      * @param entity <code>entity</code> to add the camera component to
@@ -419,9 +641,9 @@ public class Engine {
      */
     @NonNull
     public Camera createCamera(@Entity int entity) {
-        long nativeCamera = nCreateCameraWithEntity(getNativeObject(), entity);
+        long nativeCamera = nCreateCamera(getNativeObject(), entity);
         if (nativeCamera == 0) throw new IllegalStateException("Couldn't create Camera");
-        return new Camera(nativeCamera);
+        return new Camera(nativeCamera, entity);
     }
 
     /**
@@ -435,16 +657,16 @@ public class Engine {
     public Camera getCameraComponent(@Entity int entity) {
         long nativeCamera = nGetCameraComponent(getNativeObject(), entity);
         if (nativeCamera == 0) return null;
-        return new Camera(nativeCamera);
+        return new Camera(nativeCamera, entity);
     }
 
     /**
-     * Destroys a {@link Camera} component and frees all its associated resources.
-     * @param camera the {@link Camera} to destroy
+     * Destroys the {@link Camera} component associated with the given entity.
+     *
+     * @param entity an entity
      */
-    public void destroyCamera(@NonNull Camera camera) {
-        nDestroyCamera(getNativeObject(), camera.getNativeObject());
-        camera.clearNativeObject();
+    public void destroyCameraComponent(@Entity int entity) {
+        nDestroyCameraComponent(getNativeObject(), entity);
     }
 
     // Scene
@@ -525,6 +747,15 @@ public class Engine {
     }
 
     /**
+     * Destroys a {@link SkinningBuffer} and frees all its associated resources.
+     * @param skinningBuffer the {@link SkinningBuffer} to destroy
+     */
+    public void destroySkinningBuffer(@NonNull SkinningBuffer skinningBuffer) {
+        assertDestroy(nDestroySkinningBuffer(getNativeObject(), skinningBuffer.getNativeObject()));
+        skinningBuffer.clearNativeObject();
+    }
+
+    /**
      * Destroys a {@link IndirectLight} and frees all its associated resources.
      * @param ibl the {@link IndirectLight} to destroy
      */
@@ -568,7 +799,7 @@ public class Engine {
      * Destroys a {@link ColorGrading} and frees all its associated resources.
      * @param colorGrading the {@link ColorGrading} to destroy
      */
-    public void destroySkybox(@NonNull ColorGrading colorGrading) {
+    public void destroyColorGrading(@NonNull ColorGrading colorGrading) {
         assertDestroy(nDestroyColorGrading(getNativeObject(), colorGrading.getNativeObject()));
         colorGrading.clearNativeObject();
     }
@@ -592,8 +823,11 @@ public class Engine {
     }
 
     /**
-     * Destroys an <code>entity</code> and all its components.
+     * Destroys all Filament-known components from this <code>entity</code>.
      * <p>
+     * This method destroys Filament components only, not the <code>entity</code> itself. To destroy
+     * the <code>entity</code> use <code>EntityManager#destroy</code>.
+     *
      * It is recommended to destroy components individually before destroying their
      * <code>entity</code>, this gives more control as to when the destruction really happens.
      * Otherwise, orphaned components are garbage collected, which can happen at a later time.
@@ -633,8 +867,16 @@ public class Engine {
     }
 
     /**
+     * @return the {@link EntityManager} used by this {@link Engine}
+     */
+    @NonNull
+    public EntityManager getEntityManager() {
+        return mEntityManager;
+    }
+
+    /**
      * Kicks the hardware thread (e.g.: the OpenGL, Vulkan or Metal thread) and blocks until
-     * all commands to this point are executed. Note that this doesn't guarantee that the
+     * all commands to this point are executed. Note that this does guarantee that the
      * hardware is actually finished.
      *
      * <p>This is typically used right after destroying the <code>SwapChain</code>,
@@ -654,13 +896,21 @@ public class Engine {
         return mNativeObject;
     }
 
+    @UsedByReflection("MaterialBuilder.java")
+    public long getNativeJobSystem() {
+        if (mNativeObject == 0) {
+            throw new IllegalStateException("Calling method on destroyed Engine");
+        }
+        return nGetJobSystem(getNativeObject());
+    }
+
     private void clearNativeObject() {
         mNativeObject = 0;
     }
 
     private static void assertDestroy(boolean success) {
         if (!success) {
-            throw new IllegalStateException("Object couldn't be destoyed (double destroy()?)");
+            throw new IllegalStateException("Object couldn't be destroyed (double destroy()?)");
         }
     }
 
@@ -670,22 +920,22 @@ public class Engine {
     private static native long nCreateSwapChain(long nativeEngine, Object nativeWindow, long flags);
     private static native long nCreateSwapChainHeadless(long nativeEngine, int width, int height, long flags);
     private static native long nCreateSwapChainFromRawPointer(long nativeEngine, long pointer, long flags);
-    private static native boolean nDestroySwapChain(long nativeEngine, long nativeSwapChain);
     private static native long nCreateView(long nativeEngine);
-    private static native boolean nDestroyView(long nativeEngine, long nativeView);
     private static native long nCreateRenderer(long nativeEngine);
-    private static native boolean nDestroyRenderer(long nativeEngine, long nativeRenderer);
-    private static native long nCreateCamera(long nativeEngine);
-    private static native long nCreateCameraWithEntity(long nativeEngine, int entity);
+    private static native long nCreateCamera(long nativeEngine, int entity);
     private static native long nGetCameraComponent(long nativeEngine, int entity);
-    private static native void nDestroyCamera(long nativeEngine, long nativeCamera);
+    private static native void nDestroyCameraComponent(long nativeEngine, int entity);
     private static native long nCreateScene(long nativeEngine);
-    private static native boolean nDestroyScene(long nativeEngine, long nativeScene);
     private static native long nCreateFence(long nativeEngine);
+
+    private static native boolean nDestroyRenderer(long nativeEngine, long nativeRenderer);
+    private static native boolean nDestroyView(long nativeEngine, long nativeView);
+    private static native boolean nDestroyScene(long nativeEngine, long nativeScene);
     private static native boolean nDestroyFence(long nativeEngine, long nativeFence);
     private static native boolean nDestroyStream(long nativeEngine, long nativeStream);
     private static native boolean nDestroyIndexBuffer(long nativeEngine, long nativeIndexBuffer);
     private static native boolean nDestroyVertexBuffer(long nativeEngine, long nativeVertexBuffer);
+    private static native boolean nDestroySkinningBuffer(long nativeEngine, long nativeSkinningBuffer);
     private static native boolean nDestroyIndirectLight(long nativeEngine, long nativeIndirectLight);
     private static native boolean nDestroyMaterial(long nativeEngine, long nativeMaterial);
     private static native boolean nDestroyMaterialInstance(long nativeEngine, long nativeMaterialInstance);
@@ -693,9 +943,32 @@ public class Engine {
     private static native boolean nDestroyColorGrading(long nativeEngine, long nativeColorGrading);
     private static native boolean nDestroyTexture(long nativeEngine, long nativeTexture);
     private static native boolean nDestroyRenderTarget(long nativeEngine, long nativeTarget);
+    private static native boolean nDestroySwapChain(long nativeEngine, long nativeSwapChain);
+    private static native boolean nIsValidRenderer(long nativeEngine, long nativeRenderer);
+    private static native boolean nIsValidView(long nativeEngine, long nativeView);
+    private static native boolean nIsValidScene(long nativeEngine, long nativeScene);
+    private static native boolean nIsValidFence(long nativeEngine, long nativeFence);
+    private static native boolean nIsValidStream(long nativeEngine, long nativeStream);
+    private static native boolean nIsValidIndexBuffer(long nativeEngine, long nativeIndexBuffer);
+    private static native boolean nIsValidVertexBuffer(long nativeEngine, long nativeVertexBuffer);
+    private static native boolean nIsValidSkinningBuffer(long nativeEngine, long nativeSkinningBuffer);
+    private static native boolean nIsValidIndirectLight(long nativeEngine, long nativeIndirectLight);
+    private static native boolean nIsValidMaterial(long nativeEngine, long nativeMaterial);
+    private static native boolean nIsValidSkybox(long nativeEngine, long nativeSkybox);
+    private static native boolean nIsValidColorGrading(long nativeEngine, long nativeColorGrading);
+    private static native boolean nIsValidTexture(long nativeEngine, long nativeTexture);
+    private static native boolean nIsValidRenderTarget(long nativeEngine, long nativeTarget);
+    private static native boolean nIsValidSwapChain(long nativeEngine, long nativeSwapChain);
     private static native void nDestroyEntity(long nativeEngine, int entity);
     private static native void nFlushAndWait(long nativeEngine);
     private static native long nGetTransformManager(long nativeEngine);
     private static native long nGetLightManager(long nativeEngine);
     private static native long nGetRenderableManager(long nativeEngine);
+    private static native long nGetJobSystem(long nativeEngine);
+    private static native long nGetEntityManager(long nativeEngine);
+    private static native void nSetAutomaticInstancingEnabled(long nativeEngine, boolean enable);
+    private static native boolean nIsAutomaticInstancingEnabled(long nativeEngine);
+    private static native int nGetSupportedFeatureLevel(long nativeEngine);
+    private static native int nSetActiveFeatureLevel(long nativeEngine, int ordinal);
+    private static native int nGetActiveFeatureLevel(long nativeEngine);
 }

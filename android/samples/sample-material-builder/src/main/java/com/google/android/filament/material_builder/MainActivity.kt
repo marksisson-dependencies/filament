@@ -26,6 +26,7 @@ import android.view.animation.LinearInterpolator
 
 import com.google.android.filament.*
 import com.google.android.filament.android.DisplayHelper
+import com.google.android.filament.android.FilamentHelper
 import com.google.android.filament.android.UiHelper
 import com.google.android.filament.filamat.MaterialBuilder
 
@@ -112,7 +113,7 @@ class MainActivity : Activity() {
         renderer = engine.createRenderer()
         scene = engine.createScene()
         view = engine.createView()
-        camera = engine.createCamera()
+        camera = engine.createCamera(engine.entityManager.create())
     }
 
     private fun setupView() {
@@ -216,7 +217,9 @@ class MainActivity : Activity() {
                 // variant of the filamat library.
                 .optimization(MaterialBuilder.Optimization.NONE)
 
-                .build()
+                // When compiling more than one material variant, it is more efficient to pass an Engine
+                // instance to reuse the Engine's job system
+                .build(engine)
 
         if (matPackage.isValid) {
             val buffer = matPackage.buffer
@@ -287,12 +290,13 @@ class MainActivity : Activity() {
         engine.destroyMaterial(material)
         engine.destroyView(view)
         engine.destroyScene(scene)
-        engine.destroyCamera(camera)
+        engine.destroyCameraComponent(camera.entity)
 
         // Engine.destroyEntity() destroys Filament related resources only
         // (components), not the entity itself
         val entityManager = EntityManager.get()
         entityManager.destroy(light)
+        entityManager.destroy(camera.entity)
 
         // Destroying the engine will free up any resource you may have forgotten
         // to destroy, but it's recommended to do the cleanup properly
@@ -340,6 +344,8 @@ class MainActivity : Activity() {
             camera.setProjection(45.0, aspect, 0.1, 20.0, Camera.Fov.VERTICAL)
 
             view.viewport = Viewport(0, 0, width, height)
+
+            FilamentHelper.synchronizePendingFrames(engine)
         }
     }
 }

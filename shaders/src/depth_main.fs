@@ -1,40 +1,95 @@
-#if defined(HAS_VSM)
-layout(location = 0) out vec4 fragColor;
+#if defined(VARIANT_HAS_VSM)
+layout(location = 0) out highp vec4 fragColor;
+#elif defined(VARIANT_HAS_PICKING)
+#   if __VERSION__ == 100
+highp vec4 outPicking;
+#   else
+#       if MATERIAL_FEATURE_LEVEL == 0
+layout(location = 0) out highp vec4 outPicking;
+#       else
+layout(location = 0) out highp vec2 outPicking;
+#       endif
+#   endif
+#else
+// not color output
 #endif
 
 //------------------------------------------------------------------------------
 // Depth
+//
+// note: VARIANT_HAS_VSM and VARIANT_HAS_PICKING are mutually exclusive
 //------------------------------------------------------------------------------
 
+highp vec2 computeDepthMomentsVSM(highp float depth);
+
 void main() {
-#if defined(BLEND_MODE_MASKED)
+    filament_lodBias = frameUniforms.lodBias;
+
+    initObjectUniforms();
+
+#if defined(BLEND_MODE_MASKED) || ((defined(BLEND_MODE_TRANSPARENT) || defined(BLEND_MODE_FADE)) && defined(MATERIAL_HAS_TRANSPARENT_SHADOW))
     MaterialInputs inputs;
     initMaterial(inputs);
     material(inputs);
 
     float alpha = inputs.baseColor.a;
+#if defined(BLEND_MODE_MASKED)
     if (alpha < getMaskThreshold()) {
         discard;
     }
 #endif
 
-#if defined(HAS_VSM)
-    // For VSM, we use the linear light space Z coordinate as the depth metric, which works for both
-    // directional and spot lights.
-    // We negate it, because we're using a right-handed coordinate system (-Z points forward).
-    highp float depth = -mulMat4x4Float3(frameUniforms.viewFromWorldMatrix, vertex_worldPosition).z;
-
-    // Scale by cameraFar to help prevent a floating point overflow below when squaring the depth.
-    depth /= abs(frameUniforms.cameraFar);
-
-    highp float dx = dFdx(depth);
-    highp float dy = dFdy(depth);
-
-    // Output the first and second depth moments.
-    // The first moment is mean depth.
-    // The second moment is mean depth squared.
-    // These values are retrieved when sampling the shadow map to compute variance.
-    highp float bias = 0.25 * (dx * dx + dy * dy);
-    fragColor = vec4(depth, depth * depth + bias, 0.0, 0.0);
+#if defined(MATERIAL_HAS_TRANSPARENT_SHADOW)
+    // Interleaved gradient noise, see dithering.fs
+    float noise = interleavedGradientNoise(gl_FragCoord.xy);
+    if (noise >= alpha) {
+        discard;
+    }
 #endif
+#endif
+
+#if defined(VARIANT_HAS_VSM)
+    // interpolated depth is stored in vertex_worldPosition.w (see main.vs)
+    // we always compute the "negative" side of ELVSM because the cost is small, and this allows
+    // EVSM/ELVSM choice to be done on the CPU side more easily.
+    highp float depth = vertex_worldPosition.w;
+    depth = exp(frameUniforms.vsmExponent * depth);
+    fragColor.xy = computeDepthMomentsVSM(depth);
+    fragColor.zw = computeDepthMomentsVSM(-1.0 / depth); // requires at least RGBA16F
+#elif defined(VARIANT_HAS_PICKING)
+#if MATERIAL_FEATURE_LEVEL == 0
+    outPicking.a = float((object_uniforms_objectId / 65536) % 256) / 255.0;
+    outPicking.b = float((object_uniforms_objectId /   256) % 256) / 255.0;
+    outPicking.g = float( object_uniforms_objectId          % 256) / 255.0;
+    outPicking.r = vertex_position.z / vertex_position.w;
+#else
+    outPicking.x = intBitsToFloat(object_uniforms_objectId);
+    outPicking.y = vertex_position.z / vertex_position.w;
+#endif
+#if __VERSION__ == 100
+    gl_FragData[0] = outPicking;
+#endif
+#else
+    // that's it
+#endif
+}
+
+highp vec2 computeDepthMomentsVSM(highp float depth) {
+    // computes the moments
+    // See GPU Gems 3
+    // https://developer.nvidia.com/gpugems/gpugems3/part-ii-light-and-shadows/chapter-8-summed-area-variance-shadow-maps
+    highp vec2 moments;
+
+    // the first moment is just the depth (average)
+    moments.x = depth;
+
+    // compute the 2nd moment over the pixel extents.
+    moments.y = depth * depth;
+
+    // the local linear approximation is not correct with a warped depth
+    //highp float dx = dFdx(depth);
+    //highp float dy = dFdy(depth);
+    //moments.y += 0.25 * (dx * dx + dy * dy);
+
+    return moments;
 }

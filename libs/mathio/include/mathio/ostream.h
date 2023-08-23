@@ -17,31 +17,42 @@
 #include <iosfwd>
 #include <math/mathfwd.h>
 
-namespace filament {
-namespace math {
+#if __has_attribute(visibility)
+#    define MATHIO_PUBLIC __attribute__((visibility("default")))
+#else
+#    define MATHIO_PUBLIC
+#endif
 
-namespace details { template<typename T> class TQuaternion; }
+namespace filament::math::details {
 
-template<typename T>
-std::ostream& operator<<(std::ostream& out, const details::TVec2<T>& v) noexcept;
-
-template<typename T>
-std::ostream& operator<<(std::ostream& out, const details::TVec3<T>& v) noexcept;
-
-template<typename T>
-std::ostream& operator<<(std::ostream& out, const details::TVec4<T>& v) noexcept;
+template<typename T> class TQuaternion;
 
 template<typename T>
-std::ostream& operator<<(std::ostream& out, const details::TMat22<T>& v) noexcept;
+MATHIO_PUBLIC
+std::ostream& operator<<(std::ostream& out, const TVec2<T>& v) noexcept;
 
 template<typename T>
-std::ostream& operator<<(std::ostream& out, const details::TMat33<T>& v) noexcept;
+MATHIO_PUBLIC
+std::ostream& operator<<(std::ostream& out, const TVec3<T>& v) noexcept;
 
 template<typename T>
-std::ostream& operator<<(std::ostream& out, const details::TMat44<T>& v) noexcept;
+MATHIO_PUBLIC
+std::ostream& operator<<(std::ostream& out, const TVec4<T>& v) noexcept;
 
 template<typename T>
-std::ostream& operator<<(std::ostream& out, const details::TQuaternion<T>& v) noexcept;
+MATHIO_PUBLIC
+std::ostream& operator<<(std::ostream& out, const TMat22<T>& v) noexcept;
 
-}  // namespace math
-}  // namespace filament
+template<typename T>
+MATHIO_PUBLIC
+std::ostream& operator<<(std::ostream& out, const TMat33<T>& v) noexcept;
+
+template<typename T>
+MATHIO_PUBLIC
+std::ostream& operator<<(std::ostream& out, const TMat44<T>& v) noexcept;
+
+template<typename T>
+MATHIO_PUBLIC
+std::ostream& operator<<(std::ostream& out, const TQuaternion<T>& v) noexcept;
+
+}  // namespace filament::math::details

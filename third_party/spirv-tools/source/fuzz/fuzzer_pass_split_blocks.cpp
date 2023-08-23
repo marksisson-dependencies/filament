@@ -23,12 +23,12 @@ namespace spvtools {
 namespace fuzz {
 
 FuzzerPassSplitBlocks::FuzzerPassSplitBlocks(
-    opt::IRContext* ir_context, FactManager* fact_manager,
+    opt::IRContext* ir_context, TransformationContext* transformation_context,
     FuzzerContext* fuzzer_context,
-    protobufs::TransformationSequence* transformations)
-    : FuzzerPass(ir_context, fact_manager, fuzzer_context, transformations) {}
-
-FuzzerPassSplitBlocks::~FuzzerPassSplitBlocks() = default;
+    protobufs::TransformationSequence* transformations,
+    bool ignore_inapplicable_transformations)
+    : FuzzerPass(ir_context, transformation_context, fuzzer_context,
+                 transformations, ignore_inapplicable_transformations) {}
 
 void FuzzerPassSplitBlocks::Apply() {
   // Gather up pointers to all the blocks in the module.  We are then able to
@@ -65,7 +65,7 @@ void FuzzerPassSplitBlocks::Apply() {
 
     // Counts the number of times we have seen each opcode since we reset the
     // base instruction.
-    std::map<SpvOp, uint32_t> skip_count;
+    std::map<spv::Op, uint32_t> skip_count;
 
     // Consider every instruction in the block.  The label is excluded: it is
     // only necessary to consider it as a base in case the first instruction
@@ -78,7 +78,7 @@ void FuzzerPassSplitBlocks::Apply() {
         base = inst.result_id();
         skip_count.clear();
       }
-      const SpvOp opcode = inst.opcode();
+      const spv::Op opcode = inst.opcode();
       instruction_descriptors.emplace_back(MakeInstructionDescriptor(
           base, opcode, skip_count.count(opcode) ? skip_count.at(opcode) : 0));
       if (!inst.HasResultId()) {
@@ -95,10 +95,7 @@ void FuzzerPassSplitBlocks::Apply() {
     // If the position we have chosen turns out to be a valid place to split
     // the block, we apply the split. Otherwise the block just doesn't get
     // split.
-    if (transformation.IsApplicable(GetIRContext(), *GetFactManager())) {
-      transformation.Apply(GetIRContext(), GetFactManager());
-      *GetTransformations()->add_transformation() = transformation.ToMessage();
-    }
+    MaybeApplyTransformation(transformation);
   }
 }
 

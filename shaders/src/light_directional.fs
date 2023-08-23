@@ -2,11 +2,11 @@
 // Directional light evaluation
 //------------------------------------------------------------------------------
 
-#if !defined(TARGET_MOBILE)
+#if FILAMENT_QUALITY >= FILAMENT_QUALITY_HIGH
 #define SUN_AS_AREA_LIGHT
 #endif
 
-vec3 sampleSunAreaLight(const vec3 lightDirection) {
+vec3 sampleSunAreaLight(vec3 lightDirection) {
 #if defined(SUN_AS_AREA_LIGHT)
     if (frameUniforms.sun.w >= 0.0) {
         // simulate sun as disc area light
@@ -27,32 +27,40 @@ Light getDirectionalLight() {
     light.l = sampleSunAreaLight(frameUniforms.lightDirection);
     light.attenuation = 1.0;
     light.NoL = saturate(dot(shading_normal, light.l));
+    light.channels = frameUniforms.lightChannels & 0xFF;
     return light;
 }
 
-void evaluateDirectionalLight(const MaterialInputs material,
-        const PixelParams pixel, inout vec3 color) {
+void evaluateDirectionalLight(MaterialInputs material,
+        PixelParams pixel, inout vec3 color) {
 
     Light light = getDirectionalLight();
 
+    int channels = object_uniforms_flagsChannels & 0xFF;
+    if ((light.channels & channels) == 0) {
+        return;
+    }
+
+#if defined(MATERIAL_CAN_SKIP_LIGHTING)
+    if (light.NoL <= 0.0) {
+        return;
+    }
+#endif
+
     float visibility = 1.0;
-#if defined(HAS_SHADOWING)
+#if defined(VARIANT_HAS_SHADOWING)
     if (light.NoL > 0.0) {
         float ssContactShadowOcclusion = 0.0;
 
-        uint cascade = getShadowCascade();
-        bool cascadeHasVisibleShadows = bool(frameUniforms.cascades & (1u << cascade << 8u));
-        bool hasDirectionalShadows = bool(frameUniforms.directionalShadows & 1u);
+        int cascade = getShadowCascade();
+        bool cascadeHasVisibleShadows = bool(frameUniforms.cascades & ((1 << cascade) << 8));
+        bool hasDirectionalShadows = bool(frameUniforms.directionalShadows & 1);
         if (hasDirectionalShadows && cascadeHasVisibleShadows) {
-            uint layer = cascade;
-#if defined(HAS_VSM)
-            visibility = shadowVsm(light_shadowMap, layer, getCascadeLightSpacePosition(cascade));
-#else
-            visibility = shadow(light_shadowMap, layer, getCascadeLightSpacePosition(cascade));
-#endif
+            highp vec4 shadowPosition = getShadowPosition(cascade);
+            visibility = shadow(true, light_shadowMap, cascade, shadowPosition, 0.0);
         }
-        if ((frameUniforms.directionalShadows & 0x2u) != 0u && visibility > 0.0) {
-            if (objectUniforms.screenSpaceContactShadows != 0u) {
+        if ((frameUniforms.directionalShadows & 0x2) != 0 && visibility > 0.0) {
+            if ((object_uniforms_flagsChannels & FILAMENT_OBJECT_CONTACT_SHADOWS_BIT) != 0) {
                 ssContactShadowOcclusion = screenSpaceContactShadow(light.l);
             }
         }
@@ -62,14 +70,17 @@ void evaluateDirectionalLight(const MaterialInputs material,
         #if defined(MATERIAL_HAS_AMBIENT_OCCLUSION)
         visibility *= computeMicroShadowing(light.NoL, material.ambientOcclusion);
         #endif
-    } else {
 #if defined(MATERIAL_CAN_SKIP_LIGHTING)
-        return;
+        if (visibility <= 0.0) {
+            return;
+        }
 #endif
     }
-#elif defined(MATERIAL_CAN_SKIP_LIGHTING)
-    if (light.NoL <= 0.0) return;
 #endif
 
+#if defined(MATERIAL_HAS_CUSTOM_SURFACE_SHADING)
+    color.rgb += customSurfaceShading(material, pixel, light, visibility);
+#else
     color.rgb += surfaceShading(pixel, light, visibility);
+#endif
 }

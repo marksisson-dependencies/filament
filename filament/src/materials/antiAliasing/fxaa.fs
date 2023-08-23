@@ -2,7 +2,7 @@
 #define gpu_shader5        1
 
 // ES 3.0 does not have gather though
-#if defined(TARGET_VULKAN_ENVIRONMENT) || !defined(TARGET_MOBILE)
+#if defined(FILAMENT_HAS_FEATURE_TEXTURE_GATHER)
 #define FXAA_GATHER4_ALPHA 1
 #else
 #define FXAA_GATHER4_ALPHA 0
@@ -20,7 +20,7 @@
 
 // This substitute for the built-in "mix" function exists to work around #732,
 // seen with Vulkan on the Pixel 3 + Android P.
-vec4 lerp(const vec4 x, const vec4 y, float a) {
+vec4 lerp(vec4 x, vec4 y, float a) {
     return x * (1.0 - a) + y * a;
 }
 

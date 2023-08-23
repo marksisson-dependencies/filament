@@ -15,13 +15,13 @@
  */
 
 #include <gltfio/Animator.h>
+#include <gltfio/math.h>
 
 #include "FFilamentAsset.h"
 #include "FFilamentInstance.h"
-#include "math.h"
-#include "upcast.h"
+#include "downcast.h"
 
-#include <filament/MaterialEnums.h>
+#include <filament/VertexBuffer.h>
 #include <filament/RenderableManager.h>
 #include <filament/TransformManager.h>
 
@@ -42,11 +42,11 @@ using namespace filament::math;
 using namespace std;
 using namespace utils;
 
-namespace gltfio {
+namespace filament::gltfio {
 
-using TimeValues = std::map<float, size_t>;
-using SourceValues = std::vector<float>;
-using BoneVector = std::vector<filament::math::mat4f>;
+using TimeValues = map<float, size_t>;
+using SourceValues = vector<float>;
+using BoneVector = vector<mat4f>;
 
 struct Sampler {
     TimeValues times;
@@ -56,7 +56,7 @@ struct Sampler {
 
 struct Channel {
     const Sampler* sourceData;
-    utils::Entity targetEntity;
+    Entity targetEntity;
     enum { TRANSLATION, ROTATION, SCALE, WEIGHTS } transformType;
 };
 
@@ -70,18 +70,34 @@ struct Animation {
 struct AnimatorImpl {
     vector<Animation> animations;
     BoneVector boneMatrices;
-    FFilamentAsset* asset = nullptr;
+    FFilamentAsset const* asset = nullptr;
     FFilamentInstance* instance = nullptr;
     RenderableManager* renderableManager;
     TransformManager* transformManager;
+    vector<float> weights;
+    FixedCapacityVector<mat4f> crossFade;
+    void addChannels(const FixedCapacityVector<Entity>& nodeMap, const cgltf_animation& srcAnim,
+            Animation& dst);
+    void applyAnimation(const Channel& channel, float t, size_t prevIndex, size_t nextIndex);
+    void stashCrossFade();
+    void applyCrossFade(float alpha);
+    void resetBoneMatrices(FFilamentInstance* instance);
+    void updateBoneMatrices(FFilamentInstance* instance);
 };
 
 static void createSampler(const cgltf_animation_sampler& src, Sampler& dst) {
     // Copy the time values into a red-black tree.
     const cgltf_accessor* timelineAccessor = src.input;
-    const uint8_t* timelineBlob = (const uint8_t*) timelineAccessor->buffer_view->buffer->data;
-    const float* timelineFloats = (const float*) (timelineBlob + timelineAccessor->offset +
-            timelineAccessor->buffer_view->offset);
+    const uint8_t* timelineBlob = nullptr;
+    const float* timelineFloats = nullptr;
+    if (timelineAccessor->buffer_view->has_meshopt_compression) {
+        timelineBlob = (const uint8_t*) timelineAccessor->buffer_view->data;
+        timelineFloats = (const float*) (timelineBlob + timelineAccessor->offset);
+    } else {
+        timelineBlob = (const uint8_t*) timelineAccessor->buffer_view->buffer->data;
+        timelineFloats = (const float*) (timelineBlob + timelineAccessor->offset +
+                timelineAccessor->buffer_view->offset);
+    }
     for (size_t i = 0, len = timelineAccessor->count; i < len; ++i) {
         dst.times[timelineFloats[i]] = i;
     }
@@ -102,7 +118,7 @@ static void createSampler(const cgltf_animation_sampler& src, Sampler& dst) {
             cgltf_accessor_unpack_floats(src.output, &dst.values[0], valuesAccessor->count * 4);
             break;
         default:
-            slog.e << "Unknown animation type." << io::endl;
+            GLTFIO_WARN("Unknown animation type.");
             return;
     }
 
@@ -115,6 +131,8 @@ static void createSampler(const cgltf_animation_sampler& src, Sampler& dst) {
             break;
         case cgltf_interpolation_type_cubic_spline:
             dst.interpolation = Sampler::CUBIC;
+            break;
+        case cgltf_interpolation_type_max_enum:
             break;
     }
 }
@@ -133,38 +151,57 @@ static void setTransformType(const cgltf_animation_channel& src, Channel& dst) {
         case cgltf_animation_path_type_weights:
             dst.transformType = Channel::WEIGHTS;
             break;
+        case cgltf_animation_path_type_max_enum:
         case cgltf_animation_path_type_invalid:
-            slog.e << "Unsupported channel path." << io::endl;
+            GLTFIO_WARN("Unsupported channel path.");
             break;
     }
 }
 
-Animator::Animator(FFilamentAsset* asset, FFilamentInstance* instance) {
-    assert(asset->mResourcesLoaded && !asset->mIsReleased);
+static bool validateAnimation(const cgltf_animation& anim) {
+    for (cgltf_size j = 0; j < anim.channels_count; ++j) {
+        const cgltf_animation_channel& channel = anim.channels[j];
+        const cgltf_animation_sampler* sampler = channel.sampler;
+        if (!channel.target_node) {
+            continue;
+        }
+        if (!channel.sampler) {
+            return false;
+        }
+        cgltf_size components = 1;
+        if (channel.target_path == cgltf_animation_path_type_weights) {
+            if (!channel.target_node->mesh || !channel.target_node->mesh->primitives_count) {
+                return false;
+            }
+            components = channel.target_node->mesh->primitives[0].targets_count;
+        }
+        cgltf_size values = sampler->interpolation == cgltf_interpolation_type_cubic_spline ? 3 : 1;
+        if (sampler->input->count * components * values != sampler->output->count) {
+            return false;
+        }
+    }
+    return true;
+}
+
+Animator::Animator(FFilamentAsset const* asset, FFilamentInstance* instance) {
+    assert(asset->mResourcesLoaded && asset->mSourceAsset);
     mImpl = new AnimatorImpl();
     mImpl->asset = asset;
     mImpl->instance = instance;
     mImpl->renderableManager = &asset->mEngine->getRenderableManager();
     mImpl->transformManager = &asset->mEngine->getTransformManager();
 
-    auto addChannels = [](const NodeMap& nodeMap, const cgltf_animation& srcAnim, Animation& dst) {
-        cgltf_animation_channel* srcChannels = srcAnim.channels;
-        cgltf_animation_sampler* srcSamplers = srcAnim.samplers;
-        const Sampler* samplers = dst.samplers.data();
-        for (cgltf_size j = 0, nchans = srcAnim.channels_count; j < nchans; ++j) {
-            const cgltf_animation_channel& srcChannel = srcChannels[j];
-            utils::Entity targetEntity = nodeMap.at(srcChannel.target_node);
-            Channel dstChannel;
-            dstChannel.sourceData = samplers + (srcChannel.sampler - srcSamplers);
-            dstChannel.targetEntity = targetEntity;
-            setTransformType(srcChannel, dstChannel);
-            dst.channels.push_back(dstChannel);
+    const cgltf_data* srcAsset = asset->mSourceAsset->hierarchy;
+    const cgltf_animation* srcAnims = srcAsset->animations;
+    for (cgltf_size i = 0, len = srcAsset->animations_count; i < len; ++i) {
+        const cgltf_animation& anim = srcAnims[i];
+        if (!validateAnimation(anim)) {
+            GLTFIO_WARN("Disabling animation due to validation failure.");
+            return;
         }
-    };
+    }
 
     // Loop over the glTF animation definitions.
-    const cgltf_data* srcAsset = asset->mSourceAsset;
-    const cgltf_animation* srcAnims = srcAsset->animations;
     mImpl->animations.resize(srcAsset->animations_count);
     for (cgltf_size i = 0, len = srcAsset->animations_count; i < len; ++i) {
         const cgltf_animation& srcAnim = srcAnims[i];
@@ -189,14 +226,28 @@ Animator::Animator(FFilamentAsset* asset, FFilamentInstance* instance) {
 
         // Import each glTF channel into a custom data structure.
         if (instance) {
-            addChannels(instance->nodeMap, srcAnim, dstAnim);
-        } else if (asset->mInstances.empty()) {
-            addChannels(asset->mNodeMap, srcAnim, dstAnim);
+            mImpl->addChannels(instance->mNodeMap, srcAnim, dstAnim);
         } else {
             for (FFilamentInstance* instance : asset->mInstances) {
-                addChannels(instance->nodeMap, srcAnim, dstAnim);
+                mImpl->addChannels(instance->mNodeMap, srcAnim, dstAnim);
             }
         }
+    }
+}
+
+void Animator::applyCrossFade(size_t previousAnimIndex, float previousAnimTime, float alpha) {
+    mImpl->stashCrossFade();
+    applyAnimation(previousAnimIndex, previousAnimTime);
+    mImpl->applyCrossFade(alpha);
+}
+
+void Animator::addInstance(FFilamentInstance* instance) {
+    const cgltf_data* srcAsset = mImpl->asset->mSourceAsset->hierarchy;
+    const cgltf_animation* srcAnims = srcAsset->animations;
+    for (cgltf_size i = 0, len = srcAsset->animations_count; i < len; ++i) {
+        const cgltf_animation& srcAnim = srcAnims[i];
+        Animation& dstAnim = mImpl->animations[i];
+        mImpl->addChannels(instance->mNodeMap, srcAnim, dstAnim);
     }
 }
 
@@ -210,16 +261,15 @@ size_t Animator::getAnimationCount() const {
 
 void Animator::applyAnimation(size_t animationIndex, float time) const {
     const Animation& anim = mImpl->animations[animationIndex];
-    TransformManager* transformManager = mImpl->transformManager;
-    RenderableManager* renderableManager = mImpl->renderableManager;
     time = fmod(time, anim.duration);
+    TransformManager& transformManager = *mImpl->transformManager;
+    transformManager.openLocalTransformTransaction();
     for (const auto& channel : anim.channels) {
         const Sampler* sampler = channel.sourceData;
         if (sampler->times.size() < 2) {
             continue;
         }
 
-        TransformManager::Instance node = transformManager->getInstance(channel.targetEntity);
         const TimeValues& times = sampler->times;
 
         // Find the first keyframe after the given time, or the keyframe that matches it exactly.
@@ -248,144 +298,38 @@ void Animator::applyAnimation(size_t animationIndex, float time) const {
             }
         }
 
-        // Perform the interpolation. This is a simple but inefficient implementation; Filament
-        // stores transforms as mat4's but glTF animation is based on TRS (translation rotation
-        // scale).
-        mat4f xform = transformManager->getTransform(node);
-        float3 scale;
-        quatf rotation;
-        float3 translation;
-        decomposeMatrix(xform, &translation, &rotation, &scale);
-
         if (sampler->interpolation == Sampler::STEP) {
             t = 0.0f;
         }
 
-        switch (channel.transformType) {
+        mImpl->applyAnimation(channel, t, prevIndex, nextIndex);
+    }
+    transformManager.commitLocalTransformTransaction();
+}
 
-            case Channel::SCALE: {
-                const float3* srcVec3 = (const float3*) sampler->values.data();
-                if (sampler->interpolation == Sampler::CUBIC) {
-                    float3 vert0 = srcVec3[prevIndex * 3 + 1];
-                    float3 tang0 = srcVec3[prevIndex * 3 + 2];
-                    float3 tang1 = srcVec3[nextIndex * 3];
-                    float3 vert1 = srcVec3[nextIndex * 3 + 1];
-                    scale = cubicSpline(vert0, tang0, vert1, tang1, t);
-                } else {
-                    scale = ((1 - t) * srcVec3[prevIndex]) + (t * srcVec3[nextIndex]);
-                }
-                break;
-            }
+void Animator::resetBoneMatrices() {
+    // If this is a single-instance animator, then reset only this instance.
+    if (mImpl->instance) {
+        mImpl->resetBoneMatrices(mImpl->instance);
+        return;
+    }
 
-            case Channel::TRANSLATION: {
-                const float3* srcVec3 = (const float3*) sampler->values.data();
-                if (sampler->interpolation == Sampler::CUBIC) {
-                    float3 vert0 = srcVec3[prevIndex * 3 + 1];
-                    float3 tang0 = srcVec3[prevIndex * 3 + 2];
-                    float3 tang1 = srcVec3[nextIndex * 3];
-                    float3 vert1 = srcVec3[nextIndex * 3 + 1];
-                    translation = cubicSpline(vert0, tang0, vert1, tang1, t);
-                } else {
-                    translation = ((1 - t) * srcVec3[prevIndex]) + (t * srcVec3[nextIndex]);
-                }
-                break;
-            }
-
-            case Channel::ROTATION: {
-                const quatf* srcQuat = (const quatf*) sampler->values.data();
-                if (sampler->interpolation == Sampler::CUBIC) {
-                    quatf vert0 = srcQuat[prevIndex * 3 + 1];
-                    quatf tang0 = srcQuat[prevIndex * 3 + 2];
-                    quatf tang1 = srcQuat[nextIndex * 3];
-                    quatf vert1 = srcQuat[nextIndex * 3 + 1];
-                    rotation = normalize(cubicSpline(vert0, tang0, vert1, tang1, t));
-                } else {
-                    rotation = slerp(srcQuat[prevIndex], srcQuat[nextIndex], t);
-                }
-                break;
-            }
-
-            case Channel::WEIGHTS: {
-                float4 weights(0, 0, 0, 0);
-                const float* const samplerValues = sampler->values.data();
-                assert(sampler->values.size() % times.size() == 0);
-                const int valuesPerKeyframe = sampler->values.size() / times.size();
-
-                if (sampler->interpolation == Sampler::CUBIC) {
-                    assert(valuesPerKeyframe % 3 == 0);
-                    const int numMorphTargets = valuesPerKeyframe / 3;
-                    const float* const inTangents = samplerValues;
-                    const float* const splineVerts = samplerValues + numMorphTargets;
-                    const float* const outTangents = samplerValues + numMorphTargets * 2;
-
-                    const int numComponents = std::min((int) MAX_MORPH_TARGETS, numMorphTargets);
-                    for (int comp = 0; comp < numComponents; ++comp) {
-                        float vert0 = splineVerts[comp + prevIndex * valuesPerKeyframe];
-                        float tang0 = outTangents[comp + prevIndex * valuesPerKeyframe];
-                        float tang1 = inTangents[comp + nextIndex * valuesPerKeyframe];
-                        float vert1 = splineVerts[comp + nextIndex * valuesPerKeyframe];
-                        weights[comp] = cubicSpline(vert0, tang0, vert1, tang1, t);
-                    }
-                } else {
-                    const int numComponents = std::min((int) MAX_MORPH_TARGETS, valuesPerKeyframe);
-                    for (int comp = 0; comp < numComponents; ++comp) {
-                        float previous = samplerValues[comp + prevIndex * valuesPerKeyframe];
-                        float current = samplerValues[comp + nextIndex * valuesPerKeyframe];
-                        weights[comp] = (1 - t) * previous + t * current;
-                    }
-                }
-
-                auto renderable = renderableManager->getInstance(channel.targetEntity);
-                renderableManager->setMorphWeights(renderable, weights);
-                continue;
-            }
-        }
-
-        xform = composeMatrix(translation, rotation, scale);
-        transformManager->setTransform(node, xform);
+    // If this is a broadcast animator, then reset all instances.
+    for (FFilamentInstance* instance : mImpl->asset->mInstances) {
+        mImpl->resetBoneMatrices(instance);
     }
 }
 
 void Animator::updateBoneMatrices() {
-    auto renderableManager = mImpl->renderableManager;
-    auto transformManager = mImpl->transformManager;
-
-    auto update = [=](const SkinVector& skins, BoneVector& boneVector) {
-        for (const auto& skin : skins) {
-            size_t njoints = skin.joints.size();
-            boneVector.resize(njoints);
-            for (const auto& entity : skin.targets) {
-                auto renderable = renderableManager->getInstance(entity);
-                if (!renderable) {
-                    continue;
-                }
-                mat4f inverseGlobalTransform;
-                auto xformable = transformManager->getInstance(entity);
-                if (xformable) {
-                    inverseGlobalTransform = inverse(transformManager->getWorldTransform(xformable));
-                }
-                for (size_t boneIndex = 0; boneIndex < njoints; ++boneIndex) {
-                    const auto& joint = skin.joints[boneIndex];
-                    TransformManager::Instance jointInstance = transformManager->getInstance(joint);
-                    mat4f globalJointTransform = transformManager->getWorldTransform(jointInstance);
-                    boneVector[boneIndex] =
-                            inverseGlobalTransform *
-                            globalJointTransform *
-                            skin.inverseBindMatrices[boneIndex];
-                }
-                renderableManager->setBones(renderable, boneVector.data(), boneVector.size());
-            }
-        }
-    };
-
+    // If this is a single-instance animator, then update only this instance.
     if (mImpl->instance) {
-        update(mImpl->instance->skins, mImpl->boneMatrices);
-    } else if (mImpl->asset->mInstances.empty()) {
-        update(mImpl->asset->mSkins, mImpl->boneMatrices);
-    } else {
-        for (FFilamentInstance* instance : mImpl->asset->mInstances) {
-            update(instance->skins, mImpl->boneMatrices);
-        }
+        mImpl->updateBoneMatrices(mImpl->instance);
+        return;
+    }
+
+    // If this is a broadcast animator, then update all instances.
+    for (FFilamentInstance* instance : mImpl->asset->mInstances) {
+        mImpl->updateBoneMatrices(instance);
     }
 }
 
@@ -397,4 +341,233 @@ const char* Animator::getAnimationName(size_t animationIndex) const {
     return mImpl->animations[animationIndex].name.c_str();
 }
 
-} // namespace gltfio
+void AnimatorImpl::stashCrossFade() {
+    using Instance = TransformManager::Instance;
+    auto& tm = *this->transformManager;
+    auto& stash = this->crossFade;
+
+    // Count the total number of transformable nodes to preallocate the stash memory.
+    // We considered caching this count, but the cache would need to be invalidated when entities
+    // are added into the hierarchy.
+    auto recursiveCount = [&tm](Instance node, size_t count, auto& fn) -> size_t {
+        ++count;
+        for (auto iter = tm.getChildrenBegin(node); iter != tm.getChildrenEnd(node); ++iter) {
+            count = fn(*iter, count, fn);
+        }
+        return count;
+    };
+
+    auto recursiveStash = [&tm, &stash](Instance node, size_t index, auto& fn) -> size_t {
+        stash[index++] = tm.getTransform(node);
+        for (auto iter = tm.getChildrenBegin(node); iter != tm.getChildrenEnd(node); ++iter) {
+            index = fn(*iter, index, fn);
+        }
+        return index;
+    };
+
+    const Instance root = tm.getInstance(asset->mRoot);
+    const size_t count = recursiveCount(root, 0, recursiveCount);
+    crossFade.reserve(count);
+    crossFade.resize(count);
+    recursiveStash(root, 0, recursiveStash);
+}
+
+void AnimatorImpl::applyCrossFade(float alpha) {
+    using Instance = TransformManager::Instance;
+    auto& tm = *this->transformManager;
+    auto& stash = this->crossFade;
+    auto recursiveFn = [&tm, &stash, alpha](Instance node, size_t index, auto& fn) -> size_t {
+        float3 scale0, scale1;
+        quatf rotation0, rotation1;
+        float3 translation0, translation1;
+        decomposeMatrix(stash[index++], &translation1, &rotation1, &scale1);
+        decomposeMatrix(tm.getTransform(node), &translation0, &rotation0, &scale0);
+        const float3 scale = mix(scale0, scale1, alpha);
+        const quatf rotation = slerp(rotation0, rotation1, alpha);
+        const float3 translation = mix(translation0, translation1, alpha);
+        tm.setTransform(node, composeMatrix(translation, rotation, scale));
+        for (auto iter = tm.getChildrenBegin(node); iter != tm.getChildrenEnd(node); ++iter) {
+            index = fn(*iter, index, fn);
+        }
+        return index;
+    };
+    recursiveFn(tm.getInstance(asset->mRoot), 0, recursiveFn);
+}
+
+void AnimatorImpl::addChannels(const FixedCapacityVector<Entity>& nodeMap,
+        const cgltf_animation& srcAnim, Animation& dst) {
+    const cgltf_animation_channel* srcChannels = srcAnim.channels;
+    const cgltf_animation_sampler* srcSamplers = srcAnim.samplers;
+    const cgltf_node* nodes = asset->mSourceAsset->hierarchy->nodes;
+    const Sampler* samplers = dst.samplers.data();
+    for (cgltf_size j = 0, nchans = srcAnim.channels_count; j < nchans; ++j) {
+        const cgltf_animation_channel& srcChannel = srcChannels[j];
+        Entity targetEntity = nodeMap[srcChannel.target_node - nodes];
+        if (UTILS_UNLIKELY(!targetEntity)) {
+            if (GLTFIO_VERBOSE) {
+                slog.w << "No scene root contains node ";
+                if (srcChannel.target_node->name) {
+                    slog.w << "'" << srcChannel.target_node->name << "' ";
+                }
+                slog.w << "for animation ";
+                if (srcAnim.name) {
+                    slog.w << "'" << srcAnim.name << "' ";
+                }
+                slog.w << "in channel " << j << io::endl;
+            }
+            continue;
+        }
+        Channel dstChannel;
+        dstChannel.sourceData = samplers + (srcChannel.sampler - srcSamplers);
+        dstChannel.targetEntity = targetEntity;
+        setTransformType(srcChannel, dstChannel);
+        dst.channels.push_back(dstChannel);
+    }
+}
+
+void AnimatorImpl::applyAnimation(const Channel& channel, float t, size_t prevIndex,
+        size_t nextIndex) {
+    const Sampler* sampler = channel.sourceData;
+    const TimeValues& times = sampler->times;
+    TransformManager::Instance node = transformManager->getInstance(channel.targetEntity);
+
+    // Perform the interpolation. This is a simple but inefficient implementation; Filament
+    // stores transforms as mat4's but glTF animation is based on TRS (translation rotation
+    // scale).
+    mat4f xform = transformManager->getTransform(node);
+    float3 scale;
+    quatf rotation;
+    float3 translation;
+    decomposeMatrix(xform, &translation, &rotation, &scale);
+
+    switch (channel.transformType) {
+
+        case Channel::SCALE: {
+            const float3* srcVec3 = (const float3*) sampler->values.data();
+            if (sampler->interpolation == Sampler::CUBIC) {
+                float3 vert0 = srcVec3[prevIndex * 3 + 1];
+                float3 tang0 = srcVec3[prevIndex * 3 + 2];
+                float3 tang1 = srcVec3[nextIndex * 3];
+                float3 vert1 = srcVec3[nextIndex * 3 + 1];
+                scale = cubicSpline(vert0, tang0, vert1, tang1, t);
+            } else {
+                scale = ((1 - t) * srcVec3[prevIndex]) + (t * srcVec3[nextIndex]);
+            }
+            break;
+        }
+
+        case Channel::TRANSLATION: {
+            const float3* srcVec3 = (const float3*) sampler->values.data();
+            if (sampler->interpolation == Sampler::CUBIC) {
+                float3 vert0 = srcVec3[prevIndex * 3 + 1];
+                float3 tang0 = srcVec3[prevIndex * 3 + 2];
+                float3 tang1 = srcVec3[nextIndex * 3];
+                float3 vert1 = srcVec3[nextIndex * 3 + 1];
+                translation = cubicSpline(vert0, tang0, vert1, tang1, t);
+            } else {
+                translation = ((1 - t) * srcVec3[prevIndex]) + (t * srcVec3[nextIndex]);
+            }
+            break;
+        }
+
+        case Channel::ROTATION: {
+            const quatf* srcQuat = (const quatf*) sampler->values.data();
+            if (sampler->interpolation == Sampler::CUBIC) {
+                quatf vert0 = srcQuat[prevIndex * 3 + 1];
+                quatf tang0 = srcQuat[prevIndex * 3 + 2];
+                quatf tang1 = srcQuat[nextIndex * 3];
+                quatf vert1 = srcQuat[nextIndex * 3 + 1];
+                rotation = normalize(cubicSpline(vert0, tang0, vert1, tang1, t));
+            } else {
+                rotation = slerp(srcQuat[prevIndex], srcQuat[nextIndex], t);
+            }
+            break;
+        }
+
+        case Channel::WEIGHTS: {
+            const float* const samplerValues = sampler->values.data();
+            assert(sampler->values.size() % times.size() == 0);
+            const int valuesPerKeyframe = sampler->values.size() / times.size();
+
+            if (sampler->interpolation == Sampler::CUBIC) {
+                assert(valuesPerKeyframe % 3 == 0);
+                const int numMorphTargets = valuesPerKeyframe / 3;
+                const float* const inTangents = samplerValues;
+                const float* const splineVerts = samplerValues + numMorphTargets;
+                const float* const outTangents = samplerValues + numMorphTargets * 2;
+
+                weights.resize(numMorphTargets);
+                for (int comp = 0; comp < numMorphTargets; ++comp) {
+                    float vert0 = splineVerts[comp + prevIndex * valuesPerKeyframe];
+                    float tang0 = outTangents[comp + prevIndex * valuesPerKeyframe];
+                    float tang1 = inTangents[comp + nextIndex * valuesPerKeyframe];
+                    float vert1 = splineVerts[comp + nextIndex * valuesPerKeyframe];
+                    weights[comp] = cubicSpline(vert0, tang0, vert1, tang1, t);
+                }
+            } else {
+                weights.resize(valuesPerKeyframe);
+                for (int comp = 0; comp < valuesPerKeyframe; ++comp) {
+                    float previous = samplerValues[comp + prevIndex * valuesPerKeyframe];
+                    float current = samplerValues[comp + nextIndex * valuesPerKeyframe];
+                    weights[comp] = (1 - t) * previous + t * current;
+                }
+            }
+
+            auto ci = renderableManager->getInstance(channel.targetEntity);
+            renderableManager->setMorphWeights(ci, weights.data(), weights.size());
+            return;
+        }
+    }
+
+    xform = composeMatrix(translation, rotation, scale);
+    transformManager->setTransform(node, xform);
+}
+
+void AnimatorImpl::resetBoneMatrices(FFilamentInstance* instance) {
+    for (const auto& skin : instance->mSkins) {
+        size_t njoints = skin.joints.size();
+        boneMatrices.resize(njoints);
+        for (const auto& entity : skin.targets) {
+            auto renderable = renderableManager->getInstance(entity);
+            if (renderable) {
+                for (size_t boneIndex = 0; boneIndex < njoints; ++boneIndex) {
+                    boneMatrices[boneIndex] = mat4f();
+                }
+                renderableManager->setBones(renderable, boneMatrices.data(), boneMatrices.size());
+            }
+        }
+    }
+}
+
+void AnimatorImpl::updateBoneMatrices(FFilamentInstance* instance) {
+    assert_invariant(instance->mSkins.size() == asset->mSkins.size());
+    size_t skinIndex = 0;
+    for (const auto& skin : instance->mSkins) {
+        const auto& assetSkin = asset->mSkins[skinIndex++];
+        size_t njoints = skin.joints.size();
+        boneMatrices.resize(njoints);
+        for (Entity entity : skin.targets) {
+            auto renderable = renderableManager->getInstance(entity);
+            if (!renderable) {
+                continue;
+            }
+            mat4 inverseGlobalTransform;
+            auto xformable = transformManager->getInstance(entity);
+            if (xformable) {
+                inverseGlobalTransform = inverse(transformManager->getWorldTransformAccurate(xformable));
+            }
+            for (size_t boneIndex = 0; boneIndex < njoints; ++boneIndex) {
+                const auto& joint = skin.joints[boneIndex];
+                const mat4f& inverseBindMatrix = assetSkin.inverseBindMatrices[boneIndex];
+                TransformManager::Instance jointInstance = transformManager->getInstance(joint);
+                mat4 globalJointTransform = transformManager->getWorldTransformAccurate(jointInstance);
+                boneMatrices[boneIndex] =
+                        mat4f{ inverseGlobalTransform * globalJointTransform } *
+                        inverseBindMatrix;
+            }
+            renderableManager->setBones(renderable, boneMatrices.data(), boneMatrices.size());
+        }
+    }
+}
+
+} // namespace filament::gltfio
